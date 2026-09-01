@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Autorizar acesso — Trello MCP Server{% endblock %}
+
+{% block body %}
+  <h1>Autorizar acesso</h1>
+  <p class="sub">
+    <strong>{{ client_name }}</strong> quer acessar o Trello em seu nome
+    através deste servidor MCP.
+  </p>
+
+  {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+
+  <div class="card">
+    <h2>Conecte sua conta do Trello para autorizar</h2>
+    <p class="hint" style="margin-top:0">
+      Gere sua API Key e seu Token em
+      <a href="https://trello.com/app-key" target="_blank" rel="noopener">trello.com/app-key</a>.
+      As credenciais ficam criptografadas no servidor e são usadas apenas para
+      chamar a API do Trello em seu nome. Informá-las aqui prova que a conta é sua.
+    </p>
+
+    <form method="post" action="/oauth/authorize">
+      {% for key, value in params.items() %}
+        <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% endfor %}
+
+      <label for="api_key">API Key</label>
+      <input type="text" id="api_key" name="api_key" autocomplete="off" spellcheck="false" required>
+
+      <label for="token">Token</label>
+      <input type="password" id="token" name="token" autocomplete="off" spellcheck="false" required>
+
+      <button type="submit">Autorizar</button>
+    </form>
+  </div>
+
+  <p class="hint">
+    Ao autorizar, o cliente recebe um token de acesso renovável. Para revogar
+    depois, reconecte a conta no <a href="/panel">painel</a>.
+  </p>
+{% endblock %}
