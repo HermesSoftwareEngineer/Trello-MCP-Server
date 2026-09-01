@@ -90,8 +90,8 @@ tanto um connector token manual quanto um access token OAuth.
 | Tool | Tipo | O que faz |
 |---|---|---|
 | `list_boards` | leitura | Lista boards; `include` já traz listas/labels/membros junto |
-| `get_board_snapshot` | leitura | Board inteiro numa chamada: listas, labels, membros, cards, checklists e comentários |
-| `search` | leitura | Busca global; aceita a sintaxe do Trello (`@me`, `due:week`, `label:red`) + filtros estruturados |
+| `get_board_snapshot` | leitura | Board inteiro numa chamada: listas, labels, membros, cards, checklists, comentários e custom fields |
+| `search` | leitura | Busca global; aceita a sintaxe do Trello (`@me`, `due:week`, `label:red`) + filtros estruturados; `include_custom_fields` opcional |
 | `get_activity` | leitura | Histórico de board/card/membro, com resumo em texto por ação |
 | `manage_cards` | escrita | create, update, move, archive, unarchive, duplicate, get — em lote |
 | `manage_checklists_and_comments` | escrita | Checklists, itens e comentários — em lote |
@@ -110,6 +110,8 @@ tanto um connector token manual quanto um access token OAuth.
 **Alterações incrementais.** `labels` e `members` aceitam uma lista (substitui tudo) ou `{add, remove, set}`.
 
 **Resposta enxuta por padrão.** Ids viram nomes, payloads viram contadores. `include_desc`, `desc_max_chars`, `max_cards` e `include_raw` controlam o tamanho.
+
+**Custom fields como contexto.** `get_board_snapshot` e `manage_cards` (ação `get`) trazem os campos personalizados já resolvidos: dropdown vira o texto da opção, número vira número, checkbox vira bool. O snapshot também lista as *definições* do board (`custom_fields: [{name, type, options}]`), então a IA sabe quais campos existem mesmo nos cards sem valor. Custa uma chamada extra ao board — desligue com `include_custom_fields=false`. Em `search` é opt-in (`include_custom_fields=true`), porque cada board distinto no resultado é uma chamada. Leitura apenas; escrever custom field ainda não é suportado.
 
 ### Autorização por tool
 

@@ -4,6 +4,8 @@ from .common import (
     CARD_FIELDS,
     as_list,
     compact_card,
+    custom_field_schema,
+    custom_field_values,
     filter_cards,
     name_maps,
     truncate,
@@ -113,7 +115,10 @@ SNAPSHOT_TOOL = {
         "encadeadas quando precisar entender o estado de um board.\n"
         "Controle o tamanho da resposta com 'depth' (lists < cards < full), 'filters' e "
         "'max_cards'. Com depth='full' o servidor busca checklists e comentarios do board "
-        "inteiro de uma vez, sem uma chamada por card."
+        "inteiro de uma vez, sem uma chamada por card.\n"
+        "Por padrao traz os campos personalizados (custom fields): a lista de definicoes "
+        "do board em 'custom_fields' e os valores de cada card em card['custom_fields']. "
+        "Desligue com include_custom_fields=false."
     ),
     "annotations": {"title": "Snapshot de board", **READ_ONLY},
     "inputSchema": {
@@ -135,6 +140,14 @@ SNAPSHOT_TOOL = {
                 "description": "Quais cards considerar antes dos filtros.",
             },
             "include_archived_lists": {"type": "boolean", "default": False},
+            "include_custom_fields": {
+                "type": "boolean", "default": True,
+                "description": (
+                    "Traz os campos personalizados (custom fields) de cada card e a "
+                    "lista de definicoes do board. Custa uma chamada extra. "
+                    "Desligue se o board nao usa custom fields."
+                ),
+            },
             "filters": CARD_FILTERS,
             "group_by": {
                 "type": "string", "enum": ["list", "none"], "default": "list",
@@ -184,15 +197,22 @@ def get_board_snapshot(ctx, args):
         ],
     }
 
+    want_custom_fields = bool(args.get("include_custom_fields", True))
+    custom_field_defs = ctx.board_custom_fields(board_id) if want_custom_fields else []
+    if want_custom_fields:
+        snapshot["custom_fields"] = custom_field_schema(custom_field_defs)
+
     if depth == "lists":
         return snapshot
 
     status = (args.get("card_status") or "open").lower()
     api_filter = {"open": "open", "archived": "closed", "all": "all"}.get(status, "open")
 
+    card_params = {"filter": api_filter, "fields": CARD_FIELDS}
+    if want_custom_fields:
+        card_params["customFieldItems"] = "true"
     cards = ctx.client.request(
-        "GET", f"/boards/{board_id}/cards",
-        params={"filter": api_filter, "fields": CARD_FIELDS},
+        "GET", f"/boards/{board_id}/cards", params=card_params,
     ) or []
 
     if not include_closed_lists:
@@ -233,6 +253,10 @@ def get_board_snapshot(ctx, args):
                 include_desc=include_desc,
                 desc_max_chars=desc_max,
             )
+        if want_custom_fields and not include_raw:
+            values = custom_field_values(card.get("customFieldItems"), custom_field_defs)
+            if values:
+                entry["custom_fields"] = values
         if depth == "full":
             entry["checklists"] = checklists_by_card.get(card["id"], [])
             entry["comments"] = comments_by_card.get(card["id"], [])

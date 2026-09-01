@@ -6,6 +6,7 @@ from .common import (
     as_bool_param,
     as_list,
     card_created_at,
+    custom_field_values,
     filter_cards,
     join_ids,
     truncate,
@@ -58,6 +59,13 @@ SEARCH_TOOL = {
             },
             "filters": CARD_FILTERS,
             "limit": {"type": "integer", "default": 50, "description": "Maximo de cards (ate 1000)."},
+            "include_custom_fields": {
+                "type": "boolean", "default": False,
+                "description": (
+                    "Traz os campos personalizados de cada card. Custa uma chamada "
+                    "extra por board distinto no resultado -- por isso vem desligado."
+                ),
+            },
             **OUTPUT_OPTIONS,
         },
         "required": ["query"],
@@ -88,6 +96,9 @@ def search(ctx, args):
         "board_fields": "id,name,closed,shortUrl,dateLastActivity",
         "member_fields": "id,username,fullName",
     }
+    want_custom_fields = bool(args.get("include_custom_fields"))
+    if want_custom_fields:
+        params["card_customFieldItems"] = "true"
     if board_ids:
         params["idBoards"] = join_ids(board_ids)
     if args.get("archived_only") and "is:archived" not in query:
@@ -111,6 +122,18 @@ def search(ctx, args):
 
         found = len(cards)
         cards = filter_cards(cards, filters, ctx, filter_board)
+
+        if want_custom_fields and not args.get("include_raw"):
+            defs_by_board: dict[str, list] = {}
+            for card in cards:
+                board_id = card.get("idBoard")
+                if not board_id:
+                    continue
+                if board_id not in defs_by_board:
+                    defs_by_board[board_id] = ctx.board_custom_fields(board_id)
+                card["_custom_fields"] = custom_field_values(
+                    card.get("customFieldItems"), defs_by_board[board_id]
+                )
 
         response["cards"] = {
             "found_by_query": found,
@@ -179,6 +202,8 @@ def _render_search_card(card: dict, args: dict) -> dict:
     }
     if args.get("include_desc", True):
         entry["desc"] = truncate(card.get("desc"), desc_max)
+    if card.get("_custom_fields"):
+        entry["custom_fields"] = card["_custom_fields"]
     return entry
 
 

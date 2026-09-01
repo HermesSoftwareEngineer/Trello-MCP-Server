@@ -101,6 +101,38 @@ snap = run(fake, "get_board_snapshot", {"board": "Projeto Alpha", "max_cards": 1
 check("max_cards trunca e avisa", snap["cards_summary"]["truncated"] is True and snap["cards_summary"]["returned"] == 1)
 
 # --------------------------------------------------------------------------
+section("custom fields")
+fake = FakeTrello()
+snap = run(fake, "get_board_snapshot", {"board": "Projeto Alpha"})
+names = {f["name"] for f in snap.get("custom_fields", [])}
+check("snapshot lista as definicoes de custom field", names == {"Prioridade", "Sprint", "Pontos"}, str(names))
+prioridade_def = next(f for f in snap["custom_fields"] if f["name"] == "Prioridade")
+check("dropdown traz as opcoes", prioridade_def.get("options") == ["Alta", "Media", "Baixa"])
+todo = next(l for l in snap["lists"] if l["name"] == "A Fazer")
+card = next(c for c in todo["cards"] if c["name"] == "Corrigir login")
+check("card traz valores de custom field", card.get("custom_fields") == {"Prioridade": "Alta", "Sprint": "S-42"},
+      str(card.get("custom_fields")))
+sem_cf = next(c for c in todo["cards"] if c["name"] == "Atualizar README")
+check("card sem valores nao ganha a chave custom_fields", "custom_fields" not in sem_cf)
+
+snap = run(fake, "get_board_snapshot", {"board": "Projeto Alpha", "include_custom_fields": False})
+check("include_custom_fields=false remove tudo",
+      "custom_fields" not in snap and all("custom_fields" not in c for l in snap["lists"] for c in l["cards"]))
+
+out = run(fake, "manage_cards", {"operations": [
+    {"action": "get", "board": "Projeto Alpha", "card": "Corrigir login"},
+]})
+check("manage_cards get traz custom fields",
+      out["results"][0]["result"].get("custom_fields") == {"Prioridade": "Alta", "Sprint": "S-42"})
+
+out = run(fake, "search", {"query": "login", "include_custom_fields": True})
+check("search com include_custom_fields",
+      out["cards"]["items"][0].get("custom_fields") == {"Prioridade": "Alta", "Sprint": "S-42"},
+      str(out["cards"]["items"][0].get("custom_fields")))
+out = run(fake, "search", {"query": "login"})
+check("search sem a flag nao traz custom fields", "custom_fields" not in out["cards"]["items"][0])
+
+# --------------------------------------------------------------------------
 section("search")
 fake = FakeTrello()
 out = run(fake, "search", {"query": "login"})

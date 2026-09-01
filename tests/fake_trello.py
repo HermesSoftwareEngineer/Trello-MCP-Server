@@ -37,6 +37,8 @@ class FakeTrello:
         self.checkitems = {}
         self.actions = {}
         self.board_members = {}
+        self.custom_fields = {}          # id -> definicao
+        self.custom_field_items = {}     # card_id -> [item, ...]
 
         self._seed()
 
@@ -67,6 +69,13 @@ class FakeTrello:
         self._add_checkitem(cl, "Reproduzir bug", state="complete")
         self._add_checkitem(cl, "Escrever teste")
         self.checklist1 = cl
+
+        prioridade = self._add_custom_field(b, "Prioridade", "list", ["Alta", "Media", "Baixa"])
+        sprint = self._add_custom_field(b, "Sprint", "text")
+        self._add_custom_field(b, "Pontos", "number")
+        self.cf_prioridade, self.cf_sprint = prioridade, sprint
+        self._set_custom_field(c1, prioridade, option="Alta")
+        self._set_custom_field(c1, sprint, text="S-42")
 
         self._add_action(b, "commentCard", {"card": {"id": c1["id"], "name": c1["name"]},
                                             "text": "Prioridade alta"})
@@ -122,6 +131,40 @@ class FakeTrello:
         self.checkitems[checklist["id"]].append(item)
         return item
 
+    def _add_custom_field(self, board, name, type_, options=None):
+        field = {"id": new_id("1"), "idModel": board["id"], "modelType": "board",
+                 "name": name, "pos": len(self.custom_fields) * 100 + 100, "type": type_}
+        if type_ == "list":
+            field["options"] = [
+                {"id": new_id("2"), "idCustomField": field["id"],
+                 "value": {"text": text}, "color": None, "pos": i * 100 + 100}
+                for i, text in enumerate(options or [])
+            ]
+        self.custom_fields[field["id"]] = field
+        return field
+
+    def _set_custom_field(self, card, field, *, option=None, text=None, number=None,
+                          checked=None, date=None):
+        if option is not None:
+            opt = next(o for o in field["options"] if o["value"]["text"] == option)
+            item = {"id": new_id("3"), "idCustomField": field["id"], "idModel": card["id"],
+                    "modelType": "card", "idValue": opt["id"]}
+        else:
+            if text is not None:
+                value = {"text": text}
+            elif number is not None:
+                value = {"number": str(number)}
+            elif checked is not None:
+                value = {"checked": "true" if checked else "false"}
+            elif date is not None:
+                value = {"date": date}
+            else:
+                value = {}
+            item = {"id": new_id("3"), "idCustomField": field["id"], "idModel": card["id"],
+                    "modelType": "card", "value": value}
+        self.custom_field_items.setdefault(card["id"], []).append(item)
+        return item
+
     def _add_action(self, board, type_, data):
         action = {"id": new_id("9"), "type": type_, "date": "2026-08-30T11:00:00.000Z",
                   "data": {**data, "board": {"id": board["id"], "name": board["name"]}},
@@ -154,6 +197,8 @@ class FakeTrello:
             ("GET", r"^/boards/([^/]+)/members$", lambda m: lambda p: [
                 self.members[i] for i in self.board_members.get(m.group(1), [])]),
             ("GET", r"^/boards/([^/]+)/cards$", lambda m: lambda p: self._board_cards(m.group(1), p)),
+            ("GET", r"^/boards/([^/]+)/customFields$", lambda m: lambda p: [
+                f for f in self.custom_fields.values() if f["idModel"] == m.group(1)]),
             ("GET", r"^/boards/([^/]+)/checklists$", lambda m: lambda p: self._board_checklists(m.group(1))),
             ("GET", r"^/boards/([^/]+)/actions$", lambda m: lambda p: self.actions.get(m.group(1), [])),
             ("GET", r"^/boards/([^/]+)$", lambda m: lambda p: self.boards[m.group(1)]),
@@ -221,6 +266,9 @@ class FakeTrello:
             cards = [c for c in cards if not c["closed"]]
         elif wanted == "closed":
             cards = [c for c in cards if c["closed"]]
+        if params.get("customFieldItems") == "true":
+            cards = [{**c, "customFieldItems": self.custom_field_items.get(c["id"], [])}
+                     for c in cards]
         return cards
 
     def _board_checklists(self, board_id):
@@ -243,6 +291,8 @@ class FakeTrello:
             card["attachments"] = []
         if params.get("actions"):
             card["actions"] = []
+        if params.get("customFieldItems") == "true":
+            card["customFieldItems"] = self.custom_field_items.get(card_id, [])
         return card
 
     def _search(self, params):
@@ -257,6 +307,8 @@ class FakeTrello:
                 enriched["board"] = self.boards[card["idBoard"]]
                 enriched["list"] = self.lists[card["idList"]]
                 enriched["members"] = [self.members[i] for i in card["idMembers"]]
+                if params.get("card_customFieldItems") == "true":
+                    enriched["customFieldItems"] = self.custom_field_items.get(card["id"], [])
                 cards.append(enriched)
         if "cards" in (params.get("modelTypes") or ""):
             result["cards"] = cards

@@ -78,8 +78,14 @@ else:
     print("=== get_board_snapshot ===")
     probe("depth=lists", lambda: call("get_board_snapshot", {"board": target["id"], "depth": "lists"}))
     snap = probe("depth=cards", lambda: call("get_board_snapshot", {"board": target["id"]}))
+    if snap is not None:
+        check("snapshot expoe as definicoes de custom field",
+              isinstance(snap.get("custom_fields"), list),
+              f"custom_fields = {snap.get('custom_fields')!r}")
     probe("depth=full", lambda: call("get_board_snapshot",
                                      {"board": target["id"], "depth": "full", "max_cards": 20}))
+    probe("include_custom_fields=false",
+          lambda: call("get_board_snapshot", {"board": target["id"], "include_custom_fields": False}))
     probe("resolve board por nome",
           lambda: call("get_board_snapshot", {"board": target["name"], "depth": "lists"}))
     probe("filtro members=me",
@@ -101,6 +107,9 @@ else:
           lambda: call("search", {"query": "a b", "scope": ["cards", "boards", "members"], "limit": 5}))
     probe("search restrito a board",
           lambda: call("search", {"query": "e", "boards": [target["id"]], "limit": 10}))
+    probe("search com custom fields",
+          lambda: call("search", {"query": "e", "boards": [target["id"]], "limit": 10,
+                                   "include_custom_fields": True}))
 
     print("\n=== get_activity ===")
     probe("activity do board", lambda: call("get_activity", {"board": target["id"], "limit": 10}))

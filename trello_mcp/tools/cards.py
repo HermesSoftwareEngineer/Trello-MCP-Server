@@ -7,6 +7,7 @@ from .common import (
     as_list,
     card_created_at,
     compact_card,
+    custom_field_values,
     join_ids,
     name_maps,
     parse_date,
@@ -46,7 +47,7 @@ MANAGE_CARDS_TOOL = {
                                 "create = novo card; update = altera campos; "
                                 "move = muda de lista/board/posicao; archive/unarchive = "
                                 "arquiva ou desarquiva; duplicate = copia um card; "
-                                "get = le um card com checklists e comentarios."
+                                "get = le um card com checklists, comentarios e custom fields."
                             ),
                         },
                         "board": {**REF, "description": "Board de contexto, necessario para resolver nomes."},
@@ -307,11 +308,18 @@ def _get(ctx, operation):
             "attachment_fields": "id,name,url,bytes,date",
             "actions": "commentCard",
             "actions_limit": 50,
+            "customFieldItems": "true",
         },
     ) or {}
     board_id = detail.get("idBoard") or board_hint
 
     rendered = _render(ctx, detail, board_id)
+    if board_id:
+        values = custom_field_values(
+            detail.get("customFieldItems"), ctx.board_custom_fields(board_id)
+        )
+        if values:
+            rendered["custom_fields"] = values
     rendered["checklists"] = [
         {
             "id": checklist.get("id"),

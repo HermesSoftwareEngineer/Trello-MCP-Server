@@ -18,6 +18,7 @@ CARD_FIELDS = (
     "id,name,desc,idList,idBoard,idMembers,idLabels,due,dueComplete,start,"
     "closed,pos,shortUrl,dateLastActivity,idChecklists,badges"
 )
+CUSTOM_FIELD_TYPES = {"list", "text", "number", "date", "checkbox"}
 
 LABEL_COLORS = {
     "green", "yellow", "orange", "red", "purple", "blue",
@@ -149,6 +150,7 @@ class TrelloContext:
         self._lists: dict[str, list] = {}
         self._labels: dict[str, list] = {}
         self._members: dict[str, list] = {}
+        self._custom_fields: dict[str, list] = {}
 
     # -- entidades base ----------------------------------------------------
 
@@ -188,6 +190,14 @@ class TrelloContext:
             ) or []
         return self._members[board_id]
 
+    def board_custom_fields(self, board_id: str) -> list:
+        """Definicoes dos custom fields do board (nome, tipo, opcoes de dropdown)."""
+        if board_id not in self._custom_fields:
+            self._custom_fields[board_id] = self.client.request(
+                "GET", f"/boards/{board_id}/customFields"
+            ) or []
+        return self._custom_fields[board_id]
+
     def invalidate(self, board_id: str | None = None) -> None:
         """Chamado apos escritas para que leituras seguintes vejam o novo estado."""
         self._boards = None
@@ -195,10 +205,12 @@ class TrelloContext:
             self._lists.clear()
             self._labels.clear()
             self._members.clear()
+            self._custom_fields.clear()
         else:
             self._lists.pop(board_id, None)
             self._labels.pop(board_id, None)
             self._members.pop(board_id, None)
+            self._custom_fields.pop(board_id, None)
 
     # -- resolvers ---------------------------------------------------------
 
@@ -512,6 +524,67 @@ def compact_card(
     if include_desc:
         compact["desc"] = truncate(card.get("desc"), desc_max_chars)
     return {k: v for k, v in compact.items() if v is not None or k in ("due", "desc")}
+
+
+def custom_field_values(items: list | None, definitions: list) -> dict:
+    """{nome do campo: valor legivel} a partir dos customFieldItems de um card.
+
+    Dropdown ('list') vira o texto da opcao; number vira int/float; checkbox
+    vira bool; date e text ficam como string. Campos sem valor no card sao
+    omitidos.
+    """
+    if not items:
+        return {}
+    by_id = {d.get("id"): d for d in definitions}
+    out = {}
+    for item in items:
+        definition = by_id.get(item.get("idCustomField"))
+        if not definition:
+            continue
+        value = _custom_field_value(item, definition)
+        if value is not None:
+            out[definition.get("name") or definition.get("id")] = value
+    return out
+
+
+def _custom_field_value(item: dict, definition: dict):
+    if item.get("idValue"):
+        for option in definition.get("options") or []:
+            if option.get("id") == item["idValue"]:
+                return (option.get("value") or {}).get("text")
+        return None
+
+    raw = item.get("value")
+    if not isinstance(raw, dict):
+        return None
+    if "checked" in raw:
+        return raw.get("checked") == "true"
+    if "number" in raw:
+        text = raw["number"]
+        try:
+            number = float(text)
+        except (TypeError, ValueError):
+            return text
+        return int(number) if number.is_integer() else number
+    if "date" in raw:
+        return raw["date"]
+    return raw.get("text")
+
+
+def custom_field_schema(definitions: list) -> list:
+    """Lista enxuta das definicoes, para a IA saber quais campos existem."""
+    schema = []
+    for definition in definitions:
+        entry = {"name": definition.get("name"), "type": definition.get("type")}
+        options = [
+            (option.get("value") or {}).get("text")
+            for option in (definition.get("options") or [])
+        ]
+        options = [text for text in options if text]
+        if options:
+            entry["options"] = options
+        schema.append(entry)
+    return schema
 
 
 def name_maps(ctx: TrelloContext, board_id: str) -> tuple[dict, dict, dict]:
