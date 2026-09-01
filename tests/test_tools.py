@@ -255,6 +255,23 @@ out = run(fake, "manage_members", {"operations": [
 ]})
 check("list_board_members", len(out["results"][0]["result"]["members"]) == 2)
 
+# A API real devolve 400 ao reatribuir alguem que ja esta no card. Para quem
+# chama o efeito desejado ja vale, entao isso conta como sucesso.
+out = run(fake, "manage_members", {"operations": [
+    {"action": "assign_to_card", "board": "Projeto Alpha", "members": ["me"], "cards": ["Corrigir login"]},
+]})
+result = out["results"][0]["result"]
+check("reatribuir membro ja atribuido e no-op bem sucedido",
+      len(result["assigned"]) == 1 and result["assigned"][0].get("already_applied") is True
+      and not result["failed"], str(result))
+
+out = run(fake, "manage_members", {"operations": [
+    {"action": "unassign_from_card", "board": "Projeto Alpha", "members": ["maria"], "cards": ["Corrigir login"]},
+]})
+result = out["results"][0]["result"]
+check("desatribuir quem nao esta no card e no-op bem sucedido",
+      len(result["unassigned"]) == 1 and not result["failed"], str(result))
+
 # --------------------------------------------------------------------------
 section("get_activity")
 fake = FakeTrello()

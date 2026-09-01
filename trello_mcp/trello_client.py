@@ -5,9 +5,17 @@ nivel (buscar cards, criar board, etc.) serao adicionados junto com as
 tools do MCP.
 """
 
+import time
+
 import requests
 
 from .config import Config
+
+# Limites da API do Trello: 300 req/10s por API key e 100 req/10s por token.
+# Um lote grande de operacoes pode estourar isso, entao 429 vira espera e
+# nova tentativa em vez de erro. A janela e de 10s -- por isso o teto de espera.
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_MAX_WAIT = 11.0
 
 
 class TrelloAuthError(RuntimeError):
@@ -38,12 +46,24 @@ class TrelloClient:
         url = f"{self._base_url}{path}"
         merged_params = {"key": self._api_key, "token": self._token, **(params or {})}
 
-        try:
-            response = requests.request(
-                method, url, params=merged_params, json=json, timeout=15
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            try:
+                response = requests.request(
+                    method, url, params=merged_params, json=json, timeout=15
+                )
+            except requests.RequestException as exc:
+                raise TrelloApiError(f"Falha de rede ao chamar o Trello: {exc}") from exc
+
+            if response.status_code != 429 or attempt == RATE_LIMIT_RETRIES:
+                break
+            time.sleep(self._retry_delay(response, attempt))
+
+        if response.status_code == 429:
+            raise TrelloApiError(
+                "Limite de requisicoes do Trello excedido mesmo apos "
+                f"{RATE_LIMIT_RETRIES} tentativas. Divida o lote em partes menores.",
+                status_code=429,
             )
-        except requests.RequestException as exc:
-            raise TrelloApiError(f"Falha de rede ao chamar o Trello: {exc}") from exc
 
         if response.status_code in (401, 403):
             raise TrelloAuthError(
@@ -61,6 +81,17 @@ class TrelloClient:
             return response.json()
         except ValueError:
             return response.text
+
+    @staticmethod
+    def _retry_delay(response, attempt: int) -> float:
+        """Respeita Retry-After quando presente; senao usa backoff exponencial."""
+        header = response.headers.get("Retry-After")
+        if header:
+            try:
+                return min(float(header), RATE_LIMIT_MAX_WAIT)
+            except ValueError:
+                pass
+        return min(2.0 ** attempt, RATE_LIMIT_MAX_WAIT)
 
     def get_me(self) -> dict:
         """Valida as credenciais e devolve o membro dono do token."""

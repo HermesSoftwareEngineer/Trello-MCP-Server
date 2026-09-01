@@ -1,6 +1,16 @@
-"""Fake stateful da API do Trello, suficiente para exercitar as tools."""
+"""Fake stateful da API do Trello, suficiente para exercitar as tools.
+
+Comportamentos aqui foram conferidos contra a API real -- inclusive os erros
+400 de atribuicao duplicada de membro.
+"""
 import itertools
+import pathlib
 import re
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+from trello_mcp.trello_client import TrelloApiError
 
 _counter = itertools.count(1)
 
@@ -66,7 +76,7 @@ class FakeTrello:
     def _add_board(self, name, closed=False):
         board = {"id": new_id("b"), "name": name, "desc": "", "closed": closed,
                  "starred": False, "url": f"https://trello.com/b/{name}",
-                 "shortUrl": f"https://trello.com/b/x", "idOrganization": None,
+                 "shortUrl": "https://trello.com/b/x", "idOrganization": None,
                  "dateLastActivity": "2026-08-30T10:00:00.000Z", "prefs": {}}
         self.boards[board["id"]] = board
         self.board_members[board["id"]] = [self.me["id"]]
@@ -288,13 +298,19 @@ class FakeTrello:
         return {"id": new_id("9"), "text": params.get("text"), "date": "2026-09-01T10:00:00.000Z"}
 
     def _card_add_member(self, card_id, params):
+        # A API real devolve 400 "member is already on the card" nesse caso.
         card = self.cards[card_id]
-        if params["value"] not in card["idMembers"]:
-            card["idMembers"].append(params["value"])
+        if params["value"] in card["idMembers"]:
+            raise TrelloApiError("Trello retornou 400: member is already on the card",
+                                 status_code=400)
+        card["idMembers"].append(params["value"])
         return card["idMembers"]
 
     def _card_del_member(self, card_id, member_id):
         card = self.cards[card_id]
+        if member_id not in card["idMembers"]:
+            raise TrelloApiError("Trello retornou 400: member is not on the card",
+                                 status_code=400)
         card["idMembers"] = [i for i in card["idMembers"] if i != member_id]
         return card["idMembers"]
 

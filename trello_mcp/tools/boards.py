@@ -261,7 +261,13 @@ def get_board_snapshot(ctx, args):
 
 
 def _fetch_checklists(ctx, board_id: str) -> dict[str, list]:
-    """Todos os checklists do board em uma chamada, indexados por card."""
+    """Todos os checklists do board em uma chamada, indexados por card.
+
+    Os query params abaixo nao estao na doc oficial deste endpoint (so em
+    /cards/{id}/checklists), mas funcionam e sao o que permite montar o
+    depth='full' sem uma chamada por card. Se um dia pararem de funcionar,
+    o fallback e iterar os cards chamando /cards/{id}/checklists.
+    """
     raw = ctx.client.request(
         "GET", f"/boards/{board_id}/checklists",
         params={

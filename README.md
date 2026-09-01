@@ -130,7 +130,7 @@ docker run --rm -v trello-mcp-data:/data -v $(pwd):/backup alpine tar czf /backu
 
 ## Testes
 
-Suíte sem dependências externas, rodando contra um fake da API do Trello:
+**Suíte offline** (sem credenciais, contra um fake da API do Trello):
 
 ```bash
 .venv\Scripts\python.exe tests/run_all.py
@@ -140,9 +140,32 @@ Suíte sem dependências externas, rodando contra um fake da API do Trello:
 - `tests/test_tools.py` — as 9 tools, filtros, lotes parciais e mensagens de erro
 - `tests/test_mcp.py` — handshake MCP, `tools/list`, `tools/call`, tratamento de erros
 
+**Suíte contra a API real** (opcional, exige credenciais no ambiente):
+
+```bash
+TRELLO_API_KEY=... TRELLO_TOKEN=... .venv/Scripts/python.exe tests/test_real_api.py
+```
+
+Sem as variáveis, ela se pula sozinha. A parte de leitura só consulta um board existente; a de escrita cria um board descartável (`ZZ TESTE MCP (apagar)`), exercita tudo dentro dele e o apaga no fim — **nenhum board existente é modificado**. Se a limpeza falhar, o id do board é impresso para remoção manual.
+
+## Notas sobre a API do Trello
+
+Comportamentos confirmados contra a API real, que explicam decisões do código:
+
+**Atribuição de membro é idempotente aqui, não lá.** O Trello devolve `400 member is already on the card` ao reatribuir alguém que já está no card (e `not on the card` no caso inverso). Como o efeito desejado já vale, `manage_members` trata isso como sucesso e marca `already_applied: true` — a IA reatribui por garantia o tempo todo.
+
+**Rate limit: 300 req/10s por API key, 100 req/10s por token.** Lotes grandes podem estourar. O cliente reage a `429` com até 3 tentativas e backoff (respeitando `Retry-After`); depois disso o erro sugere dividir o lote.
+
+**`GET /boards/{id}/checklists` aceita `checkItems`/`checkItem_fields`** embora a documentação oficial não liste esses params para esse endpoint. É o que permite o `depth='full'` sem uma chamada por card. Se parar de funcionar, o fallback é iterar `/cards/{id}/checklists`.
+
+**A busca ignora queries de 1 caractere.** `query: "a"` retorna zero resultados — não é bug do servidor.
+
+**`GET /cards/{id}/actions` não documenta `limit`.** Funciona na prática, mas a paginação oficial ali é por `page` (50 por página).
+
 ## Status
 
 - [x] Infraestrutura Flask + endpoint MCP JSON-RPC
 - [x] Multiusuário com token por sessão + painel web
 - [x] 9 tools do Trello + suíte de testes
-- [ ] Validado contra a API real do Trello (só testado contra o fake)
+- [x] Deploy Docker + Traefik
+- [x] Validado contra a API real do Trello (57 verificações, leitura e escrita)

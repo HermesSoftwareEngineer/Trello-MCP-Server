@@ -1,11 +1,19 @@
 """manage_members: membros de boards e atribuicao em cards, em lote."""
 
+from ..trello_client import TrelloApiError
 from .common import (
     ToolError,
     as_list,
     run_batch,
 )
 from .schemas import REF, WRITE
+
+
+def _is_noop_membership_error(exc: TrelloApiError, *, assign: bool) -> bool:
+    message = str(exc).lower()
+    if exc.status_code != 400:
+        return False
+    return "already on the card" in message if assign else "not on the card" in message
 
 MANAGE_MEMBERS_TOOL = {
     "name": "manage_members",
@@ -163,6 +171,10 @@ def _card_membership(ctx, operation, *, assign: bool):
             continue
 
         for ref, member in member_ids:
+            entry = {
+                "card": {"id": card["id"], "name": card.get("name")},
+                "member": member.get("username") or member["id"],
+            }
             try:
                 if assign:
                     ctx.client.request(
@@ -172,10 +184,15 @@ def _card_membership(ctx, operation, *, assign: bool):
                     ctx.client.request(
                         "DELETE", f"/cards/{card['id']}/idMembers/{member['id']}"
                     )
-                changed.append({
-                    "card": {"id": card["id"], "name": card.get("name")},
-                    "member": member.get("username") or member["id"],
-                })
+                changed.append(entry)
+            except TrelloApiError as exc:
+                # O Trello devolve 400 quando o membro ja esta (ou ja nao esta)
+                # no card. Para quem chama o efeito desejado ja vale, entao isso
+                # e sucesso e nao erro -- a IA costuma reatribuir por garantia.
+                if _is_noop_membership_error(exc, assign=assign):
+                    changed.append({**entry, "already_applied": True})
+                else:
+                    failed.append({"card": card_ref, "member": ref, "error": str(exc)})
             except Exception as exc:
                 failed.append({"card": card_ref, "member": ref, "error": str(exc)})
 

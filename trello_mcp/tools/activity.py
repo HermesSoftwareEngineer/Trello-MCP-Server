@@ -71,6 +71,9 @@ def get_activity(ctx, args):
         path = f"/members/{entity['id']}/actions"
         label = {"member": entity.get("username"), "member_id": entity["id"]}
 
+    # 'limit' vai ate 1000 em /boards/{id}/actions e /members/{id}/actions.
+    # Em /cards/{id}/actions a doc so documenta paginacao por 'page' (50 por
+    # pagina); 'limit' e aceito na pratica, mas nao conte com ele la.
     params = {
         "limit": min(int(args.get("limit") or 100), 1000),
         "memberCreator_fields": "id,username,fullName",
