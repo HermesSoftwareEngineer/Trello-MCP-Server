@@ -30,6 +30,23 @@ python run.py
 
 ## Conectar uma conta
 
+Há dois caminhos. Ambos provam a posse da conta do mesmo jeito: você
+apresenta um par **API Key + Token** válido do Trello.
+
+### A) OAuth (Claude Desktop / claude.ai)
+
+Adicione um **conector customizado** apontando só para a URL:
+
+```
+https://trello-mcp.olimpo-services.com.br/mcp
+```
+
+O cliente descobre o restante sozinho (metadata, registro dinâmico), abre
+`/oauth/authorize` no navegador, você cola API Key + Token do Trello e
+autoriza. O cliente recebe um access token renovável — sem header manual.
+
+### B) Connector token manual (Claude Code / CLI)
+
 1. Abra `http://localhost:8000/panel`.
 2. Cole a **API Key** e o **Token** gerados em [trello.com/app-key](https://trello.com/app-key).
 3. O servidor valida as credenciais direto no Trello — isso prova que a conta é sua.
@@ -40,6 +57,31 @@ claude mcp add --transport http trello http://localhost:8000/mcp --header "Autho
 ```
 
 Reconectar a mesma conta gera um token novo e revoga o anterior.
+
+## OAuth 2.0
+
+O próprio servidor é o *authorization server*. O `/mcp` aceita como `Bearer`
+tanto um connector token manual quanto um access token OAuth.
+
+| Endpoint | RFC | Papel |
+|---|---|---|
+| `/.well-known/oauth-protected-resource` (+ `/mcp`) | 9728 | Diz qual é o authorization server |
+| `/.well-known/oauth-authorization-server` (+ `/mcp`) | 8414 | Metadata: endpoints, PKCE S256, grants |
+| `POST /oauth/register` | 7591 | Dynamic Client Registration (aberto) |
+| `GET/POST /oauth/authorize` | 6749 | Usuário prova a conta do Trello → `code` |
+| `POST /oauth/token` | 6749 | `code`+PKCE ou `refresh_token` → access token |
+
+- **PKCE S256 obrigatório.** `plain` é recusado.
+- **Clientes públicos** (`token_endpoint_auth_method: none`) e confidenciais
+  (`client_secret_post` / `client_secret_basic`) são aceitos.
+- Auth code: uso único, TTL `OAUTH_CODE_TTL` (10 min). Access token:
+  `OAUTH_ACCESS_TOKEN_TTL` (30 dias). Refresh: `OAUTH_REFRESH_TOKEN_TTL`
+  (180 dias), rotacionado a cada uso — o par antigo morre na hora.
+- Só o hash SHA-256 de codes e tokens é persistido.
+- Revogar todos os acessos de uma conta: desconecte pelo `/panel` — o
+  usuário e todos os seus tokens/codes são apagados juntos.
+- `Access-Control-Allow-Origin: *` nos endpoints OAuth, `/mcp` e
+  `/.well-known/*` para os clientes web (claude.ai).
 
 ## Tools
 
@@ -82,8 +124,10 @@ As tools declaram *annotations* MCP (`readOnlyHint`, `destructiveHint`) em `tool
 | `trello_mcp/config.py` | Configuração via `.env` |
 | `trello_mcp/crypto.py` | Fernet para credenciais em repouso + hash do connector token |
 | `trello_mcp/db.py` | SQLite: tabela `users` |
-| `trello_mcp/auth.py` | Conectar conta, resolver connector token → credenciais |
-| `trello_mcp/panel.py` + `templates/` | Painel web (`/panel`) |
+| `trello_mcp/auth.py` | Conectar conta, resolver Bearer (connector token ou access token) → credenciais |
+| `trello_mcp/oauth.py` | Lógica do OAuth: metadata, DCR, PKCE, emissão/rotação de token |
+| `trello_mcp/oauth_routes.py` | Endpoints `/.well-known/*`, `/oauth/register`, `/oauth/authorize`, `/oauth/token` |
+| `trello_mcp/panel.py` + `templates/` | Painel web (`/panel`) e telas do OAuth |
 | `trello_mcp/mcp_server.py` | Endpoint JSON-RPC `/mcp` e dispatch das tools |
 | `trello_mcp/trello_client.py` | Wrapper HTTP da API do Trello |
 | `trello_mcp/tools/common.py` | Resolvers com cache, filtros de card, batch runner |
@@ -92,8 +136,8 @@ As tools declaram *annotations* MCP (`readOnlyHint`, `destructiveHint`) em `tool
 ### Modelo de segurança
 
 - Key e Token do Trello são criptografados (Fernet) antes de ir para o banco.
-- Do connector token só o hash SHA-256 é persistido.
-- Todo `POST /mcp` exige `Authorization: Bearer <connector_token>`.
+- Do connector token e dos tokens OAuth só o hash SHA-256 é persistido.
+- Todo `POST /mcp` exige `Authorization: Bearer <token>` (connector token ou access token OAuth).
 - Erros de tool voltam como `isError: true` no resultado (não como erro de protocolo), para o modelo ler a mensagem e se corrigir.
 
 ## Deploy (Docker + Traefik)

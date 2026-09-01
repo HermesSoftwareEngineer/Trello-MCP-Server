@@ -27,3 +27,10 @@ class Config:
     PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
 
     TRELLO_API_BASE_URL = "https://api.trello.com/1"
+
+    # OAuth 2.0 -- o proprio servidor e o authorization server. O issuer e a
+    # URL publica; os endpoints ficam abaixo dela. Ver trello_mcp/oauth.py.
+    OAUTH_ISSUER = PUBLIC_BASE_URL
+    OAUTH_CODE_TTL = int(os.getenv("OAUTH_CODE_TTL", "600"))  # 10 min
+    OAUTH_ACCESS_TOKEN_TTL = int(os.getenv("OAUTH_ACCESS_TOKEN_TTL", str(30 * 24 * 3600)))
+    OAUTH_REFRESH_TOKEN_TTL = int(os.getenv("OAUTH_REFRESH_TOKEN_TTL", str(180 * 24 * 3600)))

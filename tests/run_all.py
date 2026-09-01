@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-SUITES = ["test_auth.py", "test_tools.py", "test_mcp.py"]
+SUITES = ["test_auth.py", "test_tools.py", "test_mcp.py", "test_oauth.py"]
 
 
 def main() -> int:

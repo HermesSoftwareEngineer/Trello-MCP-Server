@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Erro de autorização — Trello MCP Server{% endblock %}
+
+{% block body %}
+  <h1>Não foi possível iniciar a autorização</h1>
+  <div class="alert error">{{ message }}</div>
+  <p class="hint">
+    Isso costuma acontecer quando o cliente MCP não está registrado ou o
+    <code>redirect_uri</code> não confere. Tente remover e adicionar o
+    conector novamente no cliente.
+  </p>
+{% endblock %}

@@ -3,7 +3,8 @@ import logging
 
 from flask import Blueprint, g, jsonify, request
 
-from .auth import AuthError, client_for_user, extract_bearer_token, resolve_connector_token
+from .auth import AuthError, client_for_user, extract_bearer_token, resolve_bearer
+from .config import Config
 from .crypto import CryptoError
 from .tools import ToolError, call_tool, has_tool, list_tools
 from .trello_client import TrelloApiError, TrelloAuthError
@@ -55,13 +56,17 @@ def mcp_endpoint():
     if not method:
         return jsonify(_error(request_id, JSONRPC_INVALID_REQUEST, "Missing 'method'")), 400
 
-    # Toda requisicao MCP e autenticada: o connector token identifica de
-    # qual usuario sao as credenciais do Trello usadas na chamada.
+    # Toda requisicao MCP e autenticada: o Bearer (connector token manual ou
+    # access token OAuth) identifica de qual usuario sao as credenciais do
+    # Trello usadas na chamada.
     try:
-        g.user = resolve_connector_token(extract_bearer_token(request.headers.get("Authorization")))
+        g.user = resolve_bearer(extract_bearer_token(request.headers.get("Authorization")))
     except AuthError as exc:
         response = jsonify(_error(request_id, JSONRPC_UNAUTHORIZED, str(exc)))
-        response.headers["WWW-Authenticate"] = 'Bearer realm="trello-mcp"'
+        response.headers["WWW-Authenticate"] = (
+            'Bearer realm="trello-mcp", '
+            f'resource_metadata="{Config.PUBLIC_BASE_URL}/.well-known/oauth-protected-resource"'
+        )
         return response, 401
 
     if method == "initialize":
