@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Conta conectada — Trello MCP Server{% endblock %}
+
+{% block body %}
+  <h1>Conta conectada</h1>
+  <p class="sub">
+    Autenticado como
+    <strong>{{ user.trello_full_name or user.trello_username }}</strong>
+    {% if user.trello_username %}(@{{ user.trello_username }}){% endif %}.
+  </p>
+
+  <div class="alert ok">
+    Guarde o token abaixo agora. Ele não será exibido novamente — o servidor
+    armazena apenas um hash dele.
+  </div>
+
+  <div class="card">
+    <h2>Seu connector token</h2>
+    <div class="token-box">{{ connector_token }}</div>
+  </div>
+
+  <div class="card">
+    <h2>Configurar no Claude</h2>
+    <p class="hint" style="margin-top:0">
+      Adicione o servidor como conector MCP remoto, enviando o token no header
+      <code>Authorization</code>:
+    </p>
+    <pre>URL:    {{ mcp_url }}
+Header: Authorization: Bearer {{ connector_token }}</pre>
+    <p class="hint">
+      Via CLI do Claude Code:
+    </p>
+    <pre>claude mcp add --transport http trello {{ mcp_url }} \
+  --header "Authorization: Bearer {{ connector_token }}"</pre>
+  </div>
+
+  <div class="card">
+    <h2>Revogar</h2>
+    <p class="hint" style="margin-top:0">
+      Para invalidar este token, conecte a conta novamente no
+      <a href="/panel">painel</a> — o token anterior é revogado na hora.
+    </p>
+  </div>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Conectar conta — Trello MCP Server{% endblock %}
+
+{% block body %}
+  <h1>Trello MCP Server</h1>
+  <p class="sub">Conecte sua conta do Trello para gerar o token de acesso do conector.</p>
+
+  {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+  {% if notice %}<div class="alert ok">{{ notice }}</div>{% endif %}
+
+  <div class="card">
+    <h2>Conectar conta do Trello</h2>
+    <p class="hint" style="margin-top:0">
+      Gere sua API Key e seu Token em
+      <a href="https://trello.com/app-key" target="_blank" rel="noopener">trello.com/app-key</a>.
+      Suas credenciais ficam criptografadas no servidor e são usadas apenas para
+      chamar a API do Trello em seu nome.
+    </p>
+
+    <form method="post" action="/panel/connect">
+      <label for="api_key">API Key</label>
+      <input type="text" id="api_key" name="api_key" autocomplete="off" spellcheck="false" required>
+
+      <label for="token">Token</label>
+      <input type="password" id="token" name="token" autocomplete="off" spellcheck="false" required>
+
+      <button type="submit">Conectar</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Como funciona</h2>
+    <ol>
+      <li>Você cola sua API Key e Token do Trello acima.</li>
+      <li>O servidor valida as credenciais direto no Trello — isso prova que a conta é sua.</li>
+      <li>Você recebe um <strong>connector token</strong> para configurar no Claude.</li>
+      <li>Cada chamada ao MCP usa esse token para descobrir de quem são as credenciais.</li>
+    </ol>
+    <p class="hint">
+      Perdeu o connector token? Conecte de novo com as mesmas credenciais do Trello:
+      um token novo é gerado e o anterior é revogado.
+    </p>
+  </div>
+
+  <details>
+    <summary>Desconectar conta e apagar credenciais</summary>
+    <div class="card" style="margin-top:.75rem">
+      <p class="hint" style="margin-top:0">
+        Informe as credenciais do Trello da conta que deseja remover. Tudo que está
+        salvo no servidor para ela será apagado e o connector token deixará de funcionar.
+      </p>
+      <form method="post" action="/panel/disconnect">
+        <label for="d_api_key">API Key</label>
+        <input type="text" id="d_api_key" name="api_key" autocomplete="off" spellcheck="false" required>
+
+        <label for="d_token">Token</label>
+        <input type="password" id="d_token" name="token" autocomplete="off" spellcheck="false" required>
+
+        <button type="submit" class="secondary">Desconectar</button>
+      </form>
+    </div>
+  </details>
+{% endblock %}

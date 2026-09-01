@@ -1,0 +1,40 @@
+services:
+  trello-mcp:
+    build: .
+    container_name: trello-mcp
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PORT=5000
+      - DATABASE_PATH=/app/data/trello_mcp.sqlite3
+      - PUBLIC_BASE_URL=https://trello-mcp.olimpo-services.com.br
+      - FLASK_DEBUG=0
+    volumes:
+      # Volume nomeado (nao bind mount): o container roda como usuario nao-root
+      # (uid 1000) e o volume herda o dono de /app/data definido na imagem.
+      # Um bind mount ./data seria criado como root e o container nao escreveria.
+      - trello-mcp-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.trello-mcp.rule=Host(`trello-mcp.olimpo-services.com.br`)"
+      - "traefik.http.routers.trello-mcp.entrypoints=websecure"
+      - "traefik.http.routers.trello-mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.trello-mcp.loadbalancer.server.port=5000"
+    networks:
+      - default
+      - olimpo-net
+
+volumes:
+  trello-mcp-data:
+
+networks:
+  default:
+  olimpo-net:
+    external: true
