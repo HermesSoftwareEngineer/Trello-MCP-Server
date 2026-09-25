@@ -153,6 +153,7 @@ class FakeTrello:
                 l for l in self.labels.values() if l["idBoard"] == m.group(1)]),
             ("GET", r"^/boards/([^/]+)/members$", lambda m: lambda p: [
                 self.members[i] for i in self.board_members.get(m.group(1), [])]),
+            ("GET", r"^/boards/([^/]+)/memberships$", lambda m: lambda p: self._board_memberships(m.group(1))),
             ("GET", r"^/boards/([^/]+)/cards$", lambda m: lambda p: self._board_cards(m.group(1), p)),
             ("GET", r"^/boards/([^/]+)/checklists$", lambda m: lambda p: self._board_checklists(m.group(1))),
             ("GET", r"^/boards/([^/]+)/actions$", lambda m: lambda p: self.actions.get(m.group(1), [])),
@@ -222,6 +223,13 @@ class FakeTrello:
         elif wanted == "closed":
             cards = [c for c in cards if c["closed"]]
         return cards
+
+    def _board_memberships(self, board_id):
+        return [
+            {"idMember": mid, "memberType": "admin" if mid == self.me["id"] else "normal",
+             "unconfirmed": False, "deactivated": False}
+            for mid in self.board_members.get(board_id, [])
+        ]
 
     def _board_checklists(self, board_id):
         out = []

@@ -183,9 +183,21 @@ class TrelloContext:
 
     def board_members(self, board_id: str) -> list:
         if board_id not in self._members:
-            self._members[board_id] = self.client.request(
+            members = self.client.request(
                 "GET", f"/boards/{board_id}/members", params={"fields": MEMBER_FIELDS}
             ) or []
+            # /members nao traz o papel de cada um no board -- so /memberships tem isso.
+            memberships = self.client.request(
+                "GET", f"/boards/{board_id}/memberships",
+                params={"member": "false", "fields": "idMember,memberType,unconfirmed,deactivated"},
+            ) or []
+            roles = {m.get("idMember"): m for m in memberships}
+            for member in members:
+                info = roles.get(member.get("id")) or {}
+                member["role"] = info.get("memberType")
+                member["unconfirmed"] = info.get("unconfirmed")
+                member["deactivated"] = info.get("deactivated")
+            self._members[board_id] = members
         return self._members[board_id]
 
     def invalidate(self, board_id: str | None = None) -> None:
@@ -512,6 +524,37 @@ def compact_card(
     if include_desc:
         compact["desc"] = truncate(card.get("desc"), desc_max_chars)
     return {k: v for k, v in compact.items() if v is not None or k in ("due", "desc")}
+
+
+def render_checklist(checklist: dict, member_names: dict | None = None) -> dict:
+    """Checklist completa: nome, prazo/lembrete/responsavel da checklist e de cada item.
+
+    Trello permite atribuir prazo e responsavel tanto na checklist quanto em cada
+    item individualmente -- os dois niveis sao expostos aqui para que a IA veja o
+    estado completo sem ter que adivinhar em qual nivel a informacao esta.
+    """
+    member_names = member_names or {}
+    checklist_member = checklist.get("idMember")
+    return {
+        "id": checklist.get("id"),
+        "name": checklist.get("name"),
+        "due": checklist.get("due"),
+        "due_reminder": checklist.get("dueReminder"),
+        "assignee": member_names.get(checklist_member, checklist_member) if checklist_member else None,
+        "items": [
+            {
+                "id": item.get("id"),
+                "name": item.get("name"),
+                "checked": item.get("state") == "complete",
+                "due": item.get("due"),
+                "member": (
+                    member_names.get(item.get("idMember"), item.get("idMember"))
+                    if item.get("idMember") else None
+                ),
+            }
+            for item in sorted(checklist.get("checkItems") or [], key=lambda i: i.get("pos") or 0)
+        ],
+    }
 
 
 def name_maps(ctx: TrelloContext, board_id: str) -> tuple[dict, dict, dict]:

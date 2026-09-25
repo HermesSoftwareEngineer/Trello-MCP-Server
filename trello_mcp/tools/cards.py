@@ -10,6 +10,7 @@ from .common import (
     join_ids,
     name_maps,
     parse_date,
+    render_checklist,
     run_batch,
 )
 from .schemas import REF, WRITE
@@ -302,7 +303,8 @@ def _get(ctx, operation):
         params={
             "fields": CARD_FIELDS,
             "checklists": "all",
-            "checklist_fields": "id,name,pos",
+            "checklist_fields": "id,name,pos,due,dueReminder,idMember",
+            "checkItem_fields": "id,name,state,pos,due,idMember",
             "attachments": "true",
             "attachment_fields": "id,name,url,bytes,date",
             "actions": "commentCard",
@@ -312,22 +314,9 @@ def _get(ctx, operation):
     board_id = detail.get("idBoard") or board_hint
 
     rendered = _render(ctx, detail, board_id)
+    _, _, member_names = name_maps(ctx, board_id) if board_id else (None, None, {})
     rendered["checklists"] = [
-        {
-            "id": checklist.get("id"),
-            "name": checklist.get("name"),
-            "items": [
-                {
-                    "id": item.get("id"),
-                    "name": item.get("name"),
-                    "checked": item.get("state") == "complete",
-                    "due": item.get("due"),
-                }
-                for item in sorted(
-                    checklist.get("checkItems") or [], key=lambda i: i.get("pos") or 0
-                )
-            ],
-        }
+        render_checklist(checklist, member_names)
         for checklist in (detail.get("checklists") or [])
     ]
     rendered["comments"] = [

@@ -92,7 +92,9 @@ def _list_board_members(ctx, operation):
     return {
         "board": {"id": board["id"], "name": board.get("name")},
         "members": [
-            {"id": m["id"], "username": m.get("username"), "name": m.get("fullName")}
+            {"id": m["id"], "username": m.get("username"), "name": m.get("fullName"),
+             "role": m.get("role"), "unconfirmed": m.get("unconfirmed"),
+             "deactivated": m.get("deactivated")}
             for m in ctx.board_members(board["id"])
         ],
     }

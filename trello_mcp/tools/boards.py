@@ -6,6 +6,7 @@ from .common import (
     compact_card,
     filter_cards,
     name_maps,
+    render_checklist,
     truncate,
 )
 from .schemas import CARD_FILTERS, OUTPUT_OPTIONS, READ_ONLY, REF
@@ -89,7 +90,9 @@ def list_boards(ctx, args):
             ]
         if "members" in include:
             entry["members"] = [
-                {"id": m["id"], "username": m.get("username"), "name": m.get("fullName")}
+                {"id": m["id"], "username": m.get("username"), "name": m.get("fullName"),
+                 "role": m.get("role"), "unconfirmed": m.get("unconfirmed"),
+                 "deactivated": m.get("deactivated")}
                 for m in ctx.board_members(board["id"])
             ]
         payload.append(entry)
@@ -179,7 +182,9 @@ def get_board_snapshot(ctx, args):
             {"id": lb["id"], "name": lb.get("name"), "color": lb.get("color")} for lb in labels
         ],
         "members": [
-            {"id": m["id"], "username": m.get("username"), "name": m.get("fullName")}
+            {"id": m["id"], "username": m.get("username"), "name": m.get("fullName"),
+             "role": m.get("role"), "unconfirmed": m.get("unconfirmed"),
+             "deactivated": m.get("deactivated")}
             for m in members
         ],
     }
@@ -207,15 +212,15 @@ def get_board_snapshot(ctx, args):
     truncated = matched > max_cards
     cards = cards[:max_cards]
 
+    list_names, label_names, member_names = name_maps(ctx, board_id)
+
     checklists_by_card: dict[str, list] = {}
     comments_by_card: dict[str, list] = {}
     if depth == "full" and cards:
-        checklists_by_card = _fetch_checklists(ctx, board_id)
+        checklists_by_card = _fetch_checklists(ctx, board_id, member_names)
         comments_by_card = _fetch_comments(
             ctx, board_id, args.get("max_comments_per_card") or 10
         )
-
-    list_names, label_names, member_names = name_maps(ctx, board_id)
     desc_max = args.get("desc_max_chars", 500)
     desc_max = None if desc_max == 0 else desc_max
     include_desc = args.get("include_desc", True)
@@ -260,7 +265,7 @@ def get_board_snapshot(ctx, args):
     return snapshot
 
 
-def _fetch_checklists(ctx, board_id: str) -> dict[str, list]:
+def _fetch_checklists(ctx, board_id: str, member_names: dict) -> dict[str, list]:
     """Todos os checklists do board em uma chamada, indexados por card.
 
     Os query params abaixo nao estao na doc oficial deste endpoint (so em
@@ -271,7 +276,7 @@ def _fetch_checklists(ctx, board_id: str) -> dict[str, list]:
     raw = ctx.client.request(
         "GET", f"/boards/{board_id}/checklists",
         params={
-            "fields": "id,name,idCard,pos",
+            "fields": "id,name,idCard,pos,due,dueReminder,idMember",
             "checkItems": "all",
             "checkItem_fields": "id,name,state,pos,due,idMember",
         },
@@ -279,20 +284,9 @@ def _fetch_checklists(ctx, board_id: str) -> dict[str, list]:
 
     by_card: dict[str, list] = {}
     for checklist in raw:
-        items = sorted(checklist.get("checkItems") or [], key=lambda i: i.get("pos") or 0)
-        by_card.setdefault(checklist.get("idCard"), []).append({
-            "id": checklist.get("id"),
-            "name": checklist.get("name"),
-            "items": [
-                {
-                    "id": item.get("id"),
-                    "name": item.get("name"),
-                    "checked": item.get("state") == "complete",
-                    "due": item.get("due"),
-                }
-                for item in items
-            ],
-        })
+        by_card.setdefault(checklist.get("idCard"), []).append(
+            render_checklist(checklist, member_names)
+        )
     return by_card
 
 

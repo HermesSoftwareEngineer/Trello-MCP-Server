@@ -5,7 +5,9 @@ from .common import (
     ToolError,
     as_bool_param,
     as_list,
+    name_maps,
     parse_date,
+    render_checklist,
     run_batch,
 )
 from .schemas import REF, WRITE
@@ -92,7 +94,7 @@ def _card_checklists(ctx, card_id: str) -> list:
     return ctx.client.request(
         "GET", f"/cards/{card_id}/checklists",
         params={
-            "fields": "id,name,pos",
+            "fields": "id,name,pos,due,dueReminder,idMember",
             "checkItems": "all",
             "checkItem_fields": "id,name,state,pos,due,idMember",
         },
@@ -139,22 +141,6 @@ def _resolve_item(checklist: dict, ref) -> dict:
         f"Item {ref!r} nao encontrado. Itens: "
         + (", ".join(i.get("name") for i in items) or "(nenhum)")
     )
-
-
-def _render_checklist(checklist: dict) -> dict:
-    return {
-        "id": checklist.get("id"),
-        "name": checklist.get("name"),
-        "items": [
-            {
-                "id": item.get("id"),
-                "name": item.get("name"),
-                "checked": item.get("state") == "complete",
-                "due": item.get("due"),
-            }
-            for item in sorted(checklist.get("checkItems") or [], key=lambda i: i.get("pos") or 0)
-        ],
-    }
 
 
 def _create_items(ctx, checklist_id: str, items, board_id: str | None) -> list:
@@ -318,9 +304,12 @@ def _update_comment(ctx, operation):
 
 def _list_checklists(ctx, operation):
     card = _card_of(ctx, operation)
+    _, _, member_names = name_maps(ctx, card.get("idBoard"))
     return {
         "card": {"id": card["id"], "name": card.get("name")},
-        "checklists": [_render_checklist(c) for c in _card_checklists(ctx, card["id"])],
+        "checklists": [
+            render_checklist(c, member_names) for c in _card_checklists(ctx, card["id"])
+        ],
     }
 
 
