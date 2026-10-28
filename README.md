@@ -96,6 +96,7 @@ tanto um connector token manual quanto um access token OAuth.
 | `manage_cards` | escrita | create, update, move, archive, unarchive, duplicate, get — em lote |
 | `manage_checklists_and_comments` | escrita | Checklists, itens e comentários — em lote |
 | `manage_board_structure` | escrita | Boards, listas e labels; `create_board` monta o board inteiro de uma vez |
+| `manage_attachments` | escrita | Anexa link ou arquivo (base64, até 10 MB), lista anexos e controla a capa — em lote |
 | `manage_members` | escrita | Membros de board e atribuição em cards (produto membros × cards) |
 | `delete_items` | **destrutiva** | Remoções permanentes, com `dry_run` |
 

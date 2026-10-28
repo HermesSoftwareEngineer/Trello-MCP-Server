@@ -32,7 +32,7 @@ def section(title):
 section("Definicoes das tools")
 tools = list_tools()
 print(f"  {len(tools)} tools: {', '.join(t['name'] for t in tools)}")
-check("9 tools registradas", len(tools) == 9, str(len(tools)))
+check("10 tools registradas", len(tools) == 10, str(len(tools)))
 for tool in tools:
     ann = tool.get("annotations", {})
     check(f"{tool['name']}: schema + annotations",
@@ -41,6 +41,33 @@ check("delete_items marcada como destrutiva",
       next(t for t in tools if t["name"] == "delete_items")["annotations"]["destructiveHint"] is True)
 check("manage_cards NAO destrutiva",
       next(t for t in tools if t["name"] == "manage_cards")["annotations"]["destructiveHint"] is False)
+
+# --------------------------------------------------------------------------
+section("manage_attachments")
+import base64
+fake = FakeTrello()
+card_id = next(iter(fake.cards))
+b64 = base64.b64encode(b"hello").decode()
+out = run(fake, "manage_attachments", {"operations": [
+    {"action": "add", "card": card_id, "url": "https://example.com/doc", "name": "Doc"},
+    {"action": "add", "card": card_id, "content_base64": b64, "filename": "a.txt"},
+    {"action": "add", "card": card_id, "content_base64": "x", "url": "https://x.com"},
+    {"action": "add", "card": card_id, "content_base64": b64},
+    {"action": "list", "card": card_id},
+]})
+res = out["results"]
+check("anexa link", res[0]["status"] == "ok" and res[0]["result"]["attachment"]["name"] == "Doc", str(res[0]))
+check("anexa arquivo", res[1]["status"] == "ok" and res[1]["result"]["attachment"]["bytes"] == 5
+      and res[1]["result"]["attachment"]["mime_type"] == "text/plain", str(res[1]))
+check("url + arquivo juntos falha", res[2]["status"] == "error")
+check("arquivo sem filename falha", res[3]["status"] == "error")
+check("list traz 2 anexos", res[4]["result"]["count"] == 2, str(res[4]))
+att_id = res[0]["result"]["attachment"]["id"]
+out = run(fake, "manage_attachments", {"operations": [
+    {"action": "set_cover", "card": card_id, "attachment": att_id},
+    {"action": "remove_cover", "card": card_id},
+]})
+check("capa definida e removida", out["summary"]["failed"] == 0 and fake.cards[card_id]["idAttachmentCover"] == "", str(out))
 
 # --------------------------------------------------------------------------
 section("list_boards")

@@ -37,6 +37,7 @@ class FakeTrello:
         self.checkitems = {}
         self.actions = {}
         self.board_members = {}
+        self.attachments = {}
 
         self._seed()
 
@@ -130,8 +131,10 @@ class FakeTrello:
         return action
 
     # ---------------- roteamento ----------------
-    def request(self, method, path, params=None, json=None):
-        params = params or {}
+    def request(self, method, path, params=None, json=None, files=None):
+        params = dict(params or {})
+        if files:
+            params["_files"] = files
         self.calls.append((method, path, params))
         handler = self._route(method, path)
         if handler is None:
@@ -160,6 +163,8 @@ class FakeTrello:
             ("GET", r"^/boards/([^/]+)$", lambda m: lambda p: self.boards[m.group(1)]),
             ("GET", r"^/lists/([^/]+)$", lambda m: lambda p: self.lists[m.group(1)]),
             ("GET", r"^/cards/([^/]+)/checklists$", lambda m: lambda p: self._card_checklists(m.group(1))),
+            ("GET", r"^/cards/([^/]+)/attachments$", lambda m: lambda p: list(self.attachments.get(m.group(1), []))),
+            ("POST", r"^/cards/([^/]+)/attachments$", lambda m: lambda p: self._add_attachment(m.group(1), p)),
             ("GET", r"^/cards/([^/]+)/actions$", lambda m: lambda p: []),
             ("GET", r"^/cards/([^/]+)$", lambda m: lambda p: self._get_card(m.group(1), p)),
             ("GET", r"^/search$", lambda m: self._search),
@@ -185,6 +190,7 @@ class FakeTrello:
             ("PUT", r"^/checklists/([^/]+)$", lambda m: lambda p: self._update_checklist(m.group(1), p)),
             ("PUT", r"^/labels/([^/]+)$", lambda m: lambda p: self._update_label(m.group(1), p)),
 
+            ("DELETE", r"^/cards/([^/]+)/attachments/([^/]+)$", lambda m: lambda p: self.attachments.get(m.group(1), []).clear()),
             ("DELETE", r"^/cards/([^/]+)/idMembers/([^/]+)$", lambda m: lambda p: self._card_del_member(m.group(1), m.group(2))),
             ("DELETE", r"^/cards/([^/]+)$", lambda m: lambda p: self.cards.pop(m.group(1), None) and None),
             ("DELETE", r"^/checklists/([^/]+)/checkItems/([^/]+)$", lambda m: lambda p: None),
@@ -248,7 +254,7 @@ class FakeTrello:
         if params.get("checklists") == "all":
             card["checklists"] = self._card_checklists(card_id)
         if params.get("attachments") == "true":
-            card["attachments"] = []
+            card["attachments"] = list(self.attachments.get(card_id, []))
         if params.get("actions"):
             card["actions"] = []
         return card
@@ -288,7 +294,8 @@ class FakeTrello:
     def _update_card(self, card_id, params):
         card = self.cards[card_id]
         mapping = {"name": "name", "desc": "desc", "due": "due", "start": "start",
-                   "idList": "idList", "idBoard": "idBoard", "pos": "pos"}
+                   "idList": "idList", "idBoard": "idBoard", "pos": "pos",
+                   "idAttachmentCover": "idAttachmentCover"}
         for key, field in mapping.items():
             if key in params:
                 card[field] = params[key]
@@ -301,6 +308,20 @@ class FakeTrello:
         if "idMembers" in params:
             card["idMembers"] = [i for i in params["idMembers"].split(",") if i]
         return card
+
+    def _add_attachment(self, card_id, params):
+        files = params.get("_files")
+        if files:
+            filename, content, mime = files["file"]
+            att = {"id": new_id("a"), "name": params.get("name") or filename, "url": f"https://trello.com/1/cards/{card_id}/attachments/x/download/{filename}",
+                   "bytes": len(content), "mimeType": mime, "isUpload": True, "date": "2026-09-01T10:00:00.000Z"}
+        else:
+            att = {"id": new_id("a"), "name": params.get("name") or params["url"], "url": params["url"],
+                   "bytes": None, "mimeType": "", "isUpload": False, "date": "2026-09-01T10:00:00.000Z"}
+        self.attachments.setdefault(card_id, []).append(att)
+        if params.get("setCover") == "true":
+            self.cards[card_id]["idAttachmentCover"] = att["id"]
+        return att
 
     def _comment(self, card_id, params):
         return {"id": new_id("9"), "text": params.get("text"), "date": "2026-09-01T10:00:00.000Z"}

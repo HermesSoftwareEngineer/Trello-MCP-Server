@@ -42,6 +42,7 @@ class TrelloClient:
         path: str,
         params: dict | None = None,
         json: dict | None = None,
+        files: dict | None = None,
     ):
         url = f"{self._base_url}{path}"
         merged_params = {"key": self._api_key, "token": self._token, **(params or {})}
@@ -49,7 +50,8 @@ class TrelloClient:
         for attempt in range(RATE_LIMIT_RETRIES + 1):
             try:
                 response = requests.request(
-                    method, url, params=merged_params, json=json, timeout=15
+                    method, url, params=merged_params, json=json, files=files,
+                    timeout=60 if files else 15
                 )
             except requests.RequestException as exc:
                 raise TrelloApiError(f"Falha de rede ao chamar o Trello: {exc}") from exc
