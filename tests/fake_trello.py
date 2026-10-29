@@ -38,6 +38,8 @@ class FakeTrello:
         self.actions = {}
         self.board_members = {}
         self.attachments = {}
+        self.blobs = {}  # url -> bytes (conteudo dos anexos enviados)
+        self.downloads = []  # urls baixadas
 
         self._seed()
 
@@ -58,7 +60,7 @@ class FakeTrello:
 
         c1 = self._add_card(todo, "Corrigir login", desc="Erro 500 no login",
                             labels=[urgente], members=[self.me["id"]],
-                            due="2026-09-10T12:00:00.000Z")
+                            due="2099-09-10T12:00:00.000Z")  # futuro: nao vence com o tempo
         c2 = self._add_card(todo, "Atualizar README")
         c3 = self._add_card(doing, "Refatorar API", labels=[bug],
                             due="2026-08-01T12:00:00.000Z")
@@ -143,6 +145,11 @@ class FakeTrello:
 
     def get_me(self):
         return self.me
+
+    def download(self, url, limit):
+        self.downloads.append(url)
+        data = self.blobs[url]
+        return data[:limit], "application/octet-stream", len(data) > limit
 
     def _route(self, method, path):
         routes = [
@@ -313,7 +320,9 @@ class FakeTrello:
         files = params.get("_files")
         if files:
             filename, content, mime = files["file"]
-            att = {"id": new_id("a"), "name": params.get("name") or filename, "url": f"https://trello.com/1/cards/{card_id}/attachments/x/download/{filename}",
+            url = f"https://trello.com/1/cards/{card_id}/attachments/x/download/{filename}"
+            self.blobs[url] = content
+            att = {"id": new_id("a"), "name": params.get("name") or filename, "url": url,
                    "bytes": len(content), "mimeType": mime, "isUpload": True, "date": "2026-09-01T10:00:00.000Z"}
         else:
             att = {"id": new_id("a"), "name": params.get("name") or params["url"], "url": params["url"],

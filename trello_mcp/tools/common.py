@@ -627,3 +627,14 @@ def board_context(ctx: TrelloContext, operation: dict, *, from_card: dict | None
     if from_card:
         return from_card.get("idBoard")
     return None
+
+
+class ContentResult:
+    """Resultado de tool que ja vem em blocos de conteudo MCP (texto, imagem).
+
+    Handlers normais devolvem um objeto JSON-serializavel; este tipo e para o
+    caso em que a resposta precisa de blocos nativos (ex.: `image`).
+    """
+
+    def __init__(self, content: list):
+        self.content = content

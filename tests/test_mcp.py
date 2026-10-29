@@ -51,7 +51,7 @@ check("notifications/initialized 204", rpc("notifications/initialized").status_c
 
 r = rpc("tools/list")
 tools = r.get_json()["result"]["tools"]
-check("tools/list traz 9 tools", len(tools) == 9, str(len(tools)))
+check("tools/list traz 11 tools", len(tools) == 11, str(len(tools)))
 schema_ok = all(t["inputSchema"]["type"] == "object" for t in tools)
 check("todos os inputSchema sao objetos", schema_ok)
 check("descricoes ricas (>200 chars nas complexas)",

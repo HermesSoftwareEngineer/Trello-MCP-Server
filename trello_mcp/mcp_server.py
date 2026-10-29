@@ -6,7 +6,7 @@ from flask import Blueprint, g, jsonify, request
 from .auth import AuthError, client_for_user, extract_bearer_token, resolve_bearer
 from .config import Config
 from .crypto import CryptoError
-from .tools import ToolError, call_tool, has_tool, list_tools
+from .tools import ContentResult, ToolError, call_tool, has_tool, list_tools
 from .trello_client import TrelloApiError, TrelloAuthError
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ PROTOCOL_VERSION = "2025-06-18"
 
 SERVER_INFO = {
     "name": "trello-mcp-server",
-    "version": "0.1.0",
+    "version": "0.2.0",
 }
 
 JSONRPC_PARSE_ERROR = -32700
@@ -81,13 +81,15 @@ def mcp_endpoint():
             )
         )
 
-    if method == "notifications/initialized":
+    if method.startswith("notifications/"):
+        # Notificacoes (initialized, cancelled, ...) nao tem resposta.
         return "", 204
 
     if method == "ping":
         return jsonify(_result(request_id, {}))
 
     if method == "tools/list":
+        # Estatico: so definicoes em memoria, sem chamada ao Trello nem I/O.
         return jsonify(_result(request_id, {"tools": list_tools()}))
 
     if method == "tools/call":
@@ -131,4 +133,6 @@ def _handle_tools_call(request_id, params):
             f"Falha inesperada em '{tool_name}': {type(exc).__name__}: {exc}", is_error=True
         )))
 
+    if isinstance(result, ContentResult):
+        return jsonify(_result(request_id, {"content": result.content, "isError": False}))
     return jsonify(_result(request_id, _tool_content(result)))

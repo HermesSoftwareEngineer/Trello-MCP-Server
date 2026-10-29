@@ -134,7 +134,7 @@ check("initialize com access token OAuth", r.status_code == 200 and "result" in 
 
 r = http.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
               headers={"Authorization": f"Bearer {access}"})
-check("tools/list com access token OAuth", r.status_code == 200 and len(r.get_json()["result"]["tools"]) == 9)
+check("tools/list com access token OAuth", r.status_code == 200 and len(r.get_json()["result"]["tools"]) == 11)
 
 r = http.post("/mcp", json={"jsonrpc": "2.0", "id": 3, "method": "initialize"},
               headers={"Authorization": "Bearer lixo"})

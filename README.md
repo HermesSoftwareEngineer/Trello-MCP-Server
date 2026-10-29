@@ -85,7 +85,7 @@ tanto um connector token manual quanto um access token OAuth.
 
 ## Tools
 
-9 tools, desenhadas para **poucas chamadas e muito poder por chamada**.
+11 tools, desenhadas para **poucas chamadas e muito poder por chamada**.
 
 | Tool | Tipo | O que faz |
 |---|---|---|
@@ -97,8 +97,29 @@ tanto um connector token manual quanto um access token OAuth.
 | `manage_checklists_and_comments` | escrita | Checklists, itens e comentários — em lote |
 | `manage_board_structure` | escrita | Boards, listas e labels; `create_board` monta o board inteiro de uma vez |
 | `manage_attachments` | escrita | Anexa link ou arquivo (base64, até 10 MB), lista anexos e controla a capa — em lote |
+| `read_attachment` | leitura | Lê o **conteúdo** de um anexo de card (texto, PDF, PNG/JPG) com as credenciais do servidor |
 | `manage_members` | escrita | Membros de board e atribuição em cards (produto membros × cards) |
 | `delete_items` | **destrutiva** | Remoções permanentes, com `dry_run` |
+
+### `read_attachment`: ler arquivos anexados
+
+As URLs de anexos do Trello exigem autenticação, então um agente não consegue abri-las sozinho. `read_attachment` baixa o arquivo com as credenciais do usuário autenticado e devolve o conteúdo:
+
+```json
+{"card": "<id, shortLink ou nome>", "attachment": "<id ou nome, ex.: roteiro-v1.pdf>", "board": "<opcional>"}
+```
+
+| Tipo | Retorno | Limite |
+|---|---|---|
+| `.txt` `.md` `.json` `.csv` | texto (UTF-8) | 60 KB; acima disso vem cortado e marcado `TRUNCADO` |
+| PDF | texto extraído (`pypdf`; se vier vazio, um extrator mínimo de `(texto) Tj`) | arquivo até 10 MB, 60 páginas, 60 KB de texto |
+| PNG / JPG | bloco MCP `image` (base64 + `mimeType`) | 5 MB |
+| outros / link externo | erro claro | — |
+
+- O anexo é procurado **só entre os anexos do card informado**; id de outro card é recusado. O card é resolvido com as credenciais do usuário, então vale a mesma autorização das demais tools.
+- Com vários anexos de mesmo nome (versões reenviadas), vale o mais recente.
+- Só baixa de `https://*.trello.com`; as credenciais nunca seguem para outro host (redirects para storage assinado vão sem o header). Somente leitura (`readOnlyHint`).
+- Anexos que são só link (`isUpload: false`) não são baixados.
 
 ### Princípios de design
 
@@ -132,7 +153,7 @@ As tools declaram *annotations* MCP (`readOnlyHint`, `destructiveHint`) em `tool
 | `trello_mcp/mcp_server.py` | Endpoint JSON-RPC `/mcp` e dispatch das tools |
 | `trello_mcp/trello_client.py` | Wrapper HTTP da API do Trello |
 | `trello_mcp/tools/common.py` | Resolvers com cache, filtros de card, batch runner |
-| `trello_mcp/tools/*.py` | Uma tool (ou grupo) por arquivo |
+| `trello_mcp/tools/*.py` | Uma tool (ou grupo) por arquivo (`read_attachment.py`: leitura de anexos) |
 
 ### Modelo de segurança
 
@@ -171,6 +192,10 @@ docker run --rm -v trello-mcp-data:/data -v $(pwd):/backup alpine tar czf /backu
 
 **3 workers do gunicorn sobre um SQLite.** O banco roda em modo WAL (leituras concorrentes com uma escrita) e as conexões têm `timeout=10`. Escrita só acontece quando alguém conecta uma conta no painel — o caminho quente (`/mcp`) é só leitura no banco. Ajuste com `WEB_CONCURRENCY` se precisar.
 
+**Workers `gthread` (3 × 8 threads).** O trabalho é espera de I/O na API do Trello; com workers `sync`, três chamadas lentas ocupavam todos os workers e o `initialize`/`tools/list` de outro cliente ficava na fila (o OpenClaw estourava o limite de 1,5 s). `initialize`, `ping` e `tools/list` não chamam o Trello nem fazem I/O além da checagem do token. Ajuste com `WEB_CONCURRENCY` e `WEB_THREADS`.
+
+**Timeouts.** Chamadas ao Trello: conexão 10 s / leitura 15 s; upload de anexo: leitura 90 s; download de anexo: 30 s por leitura e 45 s no total. Leituras (GET) repetem uma vez em falha de rede; escritas não (evita anexo duplicado: o erro avisa para conferir com `list`). Erros de rede não exibem key/token. Corpo de requisição limitado a `MAX_REQUEST_BYTES` (64 MB).
+
 **`--timeout 120` no gunicorn.** Um lote grande de operações encadeia várias chamadas à API do Trello (cada uma com até 15s de timeout); o default de 30s mataria requisições legítimas.
 
 ## Testes
@@ -182,8 +207,11 @@ docker run --rm -v trello-mcp-data:/data -v $(pwd):/backup alpine tar czf /backu
 ```
 
 - `tests/test_auth.py` — banco, criptografia, rotação de token, `/mcp` sem auth
-- `tests/test_tools.py` — as 9 tools, filtros, lotes parciais e mensagens de erro
+- `tests/test_tools.py` — as tools, filtros, lotes parciais e mensagens de erro
 - `tests/test_mcp.py` — handshake MCP, `tools/list`, `tools/call`, tratamento de erros
+- `tests/test_read_attachment.py` — `read_attachment` (texto, PDF, imagem, limites, autorização), robustez do base64, timeouts/segredos do cliente HTTP e velocidade do handshake
+
+Os testes precisam de `APP_SECRET_KEY` e, de preferência, de um banco descartável: `APP_SECRET_KEY=teste DATABASE_PATH=/tmp/t.sqlite3 python tests/run_all.py`.
 
 **Suíte contra a API real** (opcional, exige credenciais no ambiente):
 
@@ -211,6 +239,7 @@ Comportamentos confirmados contra a API real, que explicam decisões do código:
 
 - [x] Infraestrutura Flask + endpoint MCP JSON-RPC
 - [x] Multiusuário com token por sessão + painel web
-- [x] 9 tools do Trello + suíte de testes
+- [x] 11 tools do Trello + suíte de testes
+- [x] `read_attachment` (v0.2.0); handshake sem I/O e workers gthread
 - [x] Deploy Docker + Traefik
 - [x] Validado contra a API real do Trello (57 verificações, leitura e escrita)

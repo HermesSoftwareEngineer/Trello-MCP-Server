@@ -4,10 +4,13 @@ Cada modulo expoe TOOLS = [(definicao_json_schema, handler), ...].
 O handler recebe (TrelloContext, arguments) e devolve um objeto serializavel.
 """
 
-from . import activity, attachments, boards, cards, checklists, deletion, members, search, structure
-from .common import ToolError, TrelloContext
+from . import (
+    activity, attachments, boards, cards, checklists, deletion, members,
+    read_attachment, search, structure,
+)
+from .common import ContentResult, ToolError, TrelloContext
 
-_MODULES = (boards, search, cards, checklists, structure, members, activity, deletion, attachments)
+_MODULES = (boards, search, cards, checklists, structure, members, activity, deletion, attachments, read_attachment)
 
 TOOL_DEFINITIONS: dict[str, dict] = {}
 _HANDLERS: dict[str, callable] = {}
@@ -33,4 +36,4 @@ def call_tool(client, name: str, arguments: dict | None):
     return _HANDLERS[name](TrelloContext(client), arguments or {})
 
 
-__all__ = ["TOOL_DEFINITIONS", "ToolError", "call_tool", "has_tool", "list_tools"]
+__all__ = ["ContentResult", "TOOL_DEFINITIONS", "ToolError", "call_tool", "has_tool", "list_tools"]
