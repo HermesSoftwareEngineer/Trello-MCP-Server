@@ -97,7 +97,7 @@ tanto um connector token manual quanto um access token OAuth.
 | `manage_checklists_and_comments` | escrita | Checklists, itens e comentários — em lote |
 | `manage_board_structure` | escrita | Boards, listas e labels; `create_board` monta o board inteiro de uma vez |
 | `manage_attachments` | escrita | Anexa link ou arquivo (base64, até 10 MB), lista anexos e controla a capa — em lote |
-| `read_attachment` | leitura | Lê o **conteúdo** de um anexo de card (texto, PDF, PNG/JPG) com as credenciais do servidor |
+| `read_attachment` | leitura | Lê ou **baixa** um anexo de card de **qualquer tipo** (texto, PDF, imagem, zip, docx/xlsx/pptx, vídeo, áudio...) com as credenciais do servidor |
 | `manage_members` | escrita | Membros de board e atribuição em cards (produto membros × cards) |
 | `delete_items` | **destrutiva** | Remoções permanentes, com `dry_run` |
 
@@ -106,7 +106,8 @@ tanto um connector token manual quanto um access token OAuth.
 As URLs de anexos do Trello exigem autenticação, então um agente não consegue abri-las sozinho. `read_attachment` baixa o arquivo com as credenciais do usuário autenticado e devolve o conteúdo:
 
 ```json
-{"card": "<id, shortLink ou nome>", "attachment": "<id ou nome, ex.: roteiro-v1.pdf>", "board": "<opcional>"}
+{"card": "<id, shortLink ou nome>", "attachment": "<id ou nome, ex.: roteiro-v1.pdf>", "board": "<opcional>",
+ "mode": "auto | info | download", "offset": 0, "part": 1, "length": 98304, "entry": "<arquivo dentro de um .zip>"}
 ```
 
 | Tipo | Retorno | Limite |
@@ -114,7 +115,14 @@ As URLs de anexos do Trello exigem autenticação, então um agente não consegu
 | `.txt` `.md` `.json` `.csv` | texto (UTF-8) | 60 KB; acima disso vem cortado e marcado `TRUNCADO` |
 | PDF | texto extraído (`pypdf`; se vier vazio, um extrator mínimo de `(texto) Tj`) | arquivo até 10 MB, 60 páginas, 60 KB de texto |
 | PNG / JPG | bloco MCP `image` (base64 + `mimeType`) | 5 MB |
-| outros / link externo | erro claro | — |
+| `.zip` | **lista** o conteúdo (nome, tamanho, avisos) **sem extrair** | arquivo até 30 MB, 500 entradas |
+| `.docx` `.xlsx` `.pptx` | texto extraído (parágrafos; planilhas em TSV; slides) | arquivo até 30 MB, 60 KB de texto |
+| vídeo, áudio e demais | metadados (nome, tipo, tamanho, id) e instruções de download | — |
+| link externo | erro claro | — |
+
+**Baixar qualquer arquivo** (`mode: "download"`): devolve JSON com `data` (base64), `offset`, `length`, `next_offset`, `done`, `total_bytes` e `sha256_da_parte`. Repita com `offset = next_offset` (ou `part` 2, 3...) até `done: true` e junte as partes. Parte padrão de 96 KB (máx. 512 KB por chamada); o arquivo é lido até 64 MB. `mode: "info"` devolve só os metadados, sem baixar. `entry` lê (ou, com `download`, baixa em partes) um arquivo de dentro de um `.zip`.
+
+Proteções: nada é gravado em disco (tudo em memória, com limites); entradas de zip com caminho `..`/absoluto são sinalizadas (`unsafe_path`) e nunca extraídas; descompactação em streaming com teto de 20 MB por entrada e aviso de zip-bomb por taxa de compressão; docx/xlsx/pptx com DTD/entidades são recusados; os retornos nunca trazem a URL do anexo nem credenciais. Observação prática: cada parte em base64 passa pelo contexto do agente, então para arquivos grandes (vídeos) o uso realista é metadados/tamanho; baixe por partes só o que for necessário.
 
 - O anexo é procurado **só entre os anexos do card informado**; id de outro card é recusado. O card é resolvido com as credenciais do usuário, então vale a mesma autorização das demais tools.
 - Com vários anexos de mesmo nome (versões reenviadas), vale o mais recente.
@@ -209,6 +217,7 @@ docker run --rm -v trello-mcp-data:/data -v $(pwd):/backup alpine tar czf /backu
 - `tests/test_auth.py` — banco, criptografia, rotação de token, `/mcp` sem auth
 - `tests/test_tools.py` — as tools, filtros, lotes parciais e mensagens de erro
 - `tests/test_mcp.py` — handshake MCP, `tools/list`, `tools/call`, tratamento de erros
+- `tests/test_attachment_types.py` — `read_attachment` para qualquer tipo: info, download em partes, zip (listar/entrada/zip-bomb/path traversal), docx/xlsx/pptx, mídia
 - `tests/test_read_attachment.py` — `read_attachment` (texto, PDF, imagem, limites, autorização), robustez do base64, timeouts/segredos do cliente HTTP e velocidade do handshake
 
 Os testes precisam de `APP_SECRET_KEY` e, de preferência, de um banco descartável: `APP_SECRET_KEY=teste DATABASE_PATH=/tmp/t.sqlite3 python tests/run_all.py`.
@@ -240,6 +249,6 @@ Comportamentos confirmados contra a API real, que explicam decisões do código:
 - [x] Infraestrutura Flask + endpoint MCP JSON-RPC
 - [x] Multiusuário com token por sessão + painel web
 - [x] 11 tools do Trello + suíte de testes
-- [x] `read_attachment` (v0.2.0); handshake sem I/O e workers gthread
+- [x] `read_attachment` (v0.2.0) para qualquer tipo de arquivo (v0.3.0); handshake sem I/O e workers gthread
 - [x] Deploy Docker + Traefik
 - [x] Validado contra a API real do Trello (57 verificações, leitura e escrita)

@@ -148,13 +148,14 @@ class TrelloClient:
             params={"fields": "id,username,fullName,email"},
         )
 
-    def download(self, url: str, limit: int) -> tuple[bytes, str, bool]:
+    def download(self, url: str, limit: int, offset: int = 0) -> tuple[bytes, str, bool]:
         """Baixa um arquivo anexado (URL do Trello) com as credenciais do usuario.
 
         As URLs de anexos do Trello exigem o header Authorization (OAuth) e
         nao aceitam key/token na query. As credenciais so vao para hosts do
         Trello: se houver redirect para outro host (storage assinado), o
-        header e descartado. Le no maximo `limit` bytes e devolve
+        header e descartado. Pula os primeiros `offset` bytes (sem guarda-los
+        em memoria), le no maximo `limit` bytes e devolve
         (conteudo, content_type, truncado) -- truncado=True se havia mais.
         """
         if not url.lower().startswith("https://") or not is_trello_host(url):
@@ -193,19 +194,23 @@ class TrelloClient:
                         status_code=response.status_code,
                     )
 
-                chunks, size, truncated = [], 0, False
+                chunks, size, pos, truncated = [], 0, 0, False
                 try:
                     for chunk in response.iter_content(DOWNLOAD_CHUNK):
                         if not chunk:
                             continue
-                        room = limit - size
-                        if len(chunk) > room:
-                            chunks.append(chunk[:room])
-                            size += room
-                            truncated = True
-                            break
-                        chunks.append(chunk)
-                        size += len(chunk)
+                        piece = chunk[max(offset - pos, 0):]
+                        pos += len(chunk)
+                        if piece:
+                            room = limit - size
+                            if len(piece) > room:
+                                if room > 0:
+                                    chunks.append(piece[:room])
+                                    size += room
+                                truncated = True
+                                break
+                            chunks.append(piece)
+                            size += len(piece)
                         if time.monotonic() > deadline:
                             raise TrelloApiError("Download do anexo excedeu o tempo limite.")
                 except requests.RequestException as exc:

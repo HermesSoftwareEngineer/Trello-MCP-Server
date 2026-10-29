@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 (2026-10-29)
+
+Retrocompatível: texto, PDF e imagem continuam com o mesmo retorno; `card` e `attachment` seguem sendo os únicos parâmetros obrigatórios.
+
+- **`read_attachment` aceita qualquer tipo** (antes: "Tipo nao suportado" para zip, mp4 etc.). Novos parâmetros opcionais: `mode` (`auto`/`info`/`download`), `offset`, `part`, `length`, `entry`.
+- **Download em partes** (`mode: "download"`): base64 em JSON com `offset`/`next_offset`/`done`/`sha256_da_parte`; 96 KB por parte (máx. 512 KB), arquivo lido até 64 MB; cabe no tempo de chamada do cliente (~60 s).
+- **Zip**: lista o conteúdo sem extrair; `entry` lê um arquivo de dentro (texto/imagem direto, binário via download). Proteções: nada em disco, caminhos `..`/absolutos sinalizados, teto de 20 MB por entrada, aviso de zip-bomb, entradas com senha recusadas.
+- **docx/xlsx/pptx**: texto extraído sem dependências novas (XML com DTD/entidades é recusado).
+- **Vídeo, áudio e outros**: metadados (nome, tipo, tamanho, id) e instruções de download. Retornos nunca incluem a URL do anexo nem credenciais.
+- `TrelloClient.download` ganhou `offset` (pula bytes sem guardá-los em memória).
+- Testes: nova suíte `test_attachment_types.py`.
+
 ## 0.2.0 (2026-10-28)
 
 Retrocompatível: nenhuma tool ou parâmetro existente mudou.

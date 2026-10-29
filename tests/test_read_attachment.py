@@ -152,8 +152,8 @@ attach(fake, card, "planilha.xlsx", b"PK\x03\x04....")
 try:
     read(fake, card=card, attachment="planilha.xlsx"); ok = False
 except ToolError as e:
-    ok = "nao suportado" in str(e).lower() and "PDF" in str(e)
-check("tipo nao suportado -> erro claro", ok)
+    ok = "valido" in str(e).lower() and "download" in str(e)
+check("xlsx corrompido -> erro claro apontando mode=download", ok)
 call_tool(fake, "manage_attachments", {"operations": [
     {"action": "add", "card": card, "url": "https://example.com/doc", "name": "Link"}]})
 try:
@@ -238,7 +238,7 @@ for method in ("initialize", "tools/list", "ping"):
     check(f"{method}: sem chamada ao Trello e < 50 ms (media {avg_ms:.1f} ms)", r.status_code == 200 and avg_ms < 50)
 r = rpc("notifications/cancelled")
 check("qualquer notifications/* -> 204", r.status_code == 204)
-check("versao do servidor 0.2.0", rpc("initialize").get_json()["result"]["serverInfo"]["version"] == "0.2.0")
+check("versao do servidor 0.3.0", rpc("initialize").get_json()["result"]["serverInfo"]["version"] == "0.3.0")
 big = http.post("/mcp", data=b"x" * 10, content_type="application/json", headers=auth)
 check("corpo invalido continua parse error", big.status_code == 400)
 

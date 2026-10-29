@@ -17,7 +17,7 @@ PROTOCOL_VERSION = "2025-06-18"
 
 SERVER_INFO = {
     "name": "trello-mcp-server",
-    "version": "0.2.0",
+    "version": "0.3.0",
 }
 
 JSONRPC_PARSE_ERROR = -32700

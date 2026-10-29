@@ -146,10 +146,10 @@ class FakeTrello:
     def get_me(self):
         return self.me
 
-    def download(self, url, limit):
+    def download(self, url, limit, offset=0):
         self.downloads.append(url)
         data = self.blobs[url]
-        return data[:limit], "application/octet-stream", len(data) > limit
+        return data[offset:offset + limit], "application/octet-stream", len(data) > offset + limit
 
     def _route(self, method, path):
         routes = [
