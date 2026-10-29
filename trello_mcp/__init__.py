@@ -24,6 +24,14 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     def health():
         return {"status": "ok"}
 
+    @app.errorhandler(413)
+    def _too_large(_exc):
+        return {"jsonrpc": "2.0", "id": None, "error": {
+            "code": -32600,
+            "message": "Requisicao grande demais (limite "
+                       f"{app.config['MAX_CONTENT_LENGTH']} bytes). Envie menos anexos por chamada.",
+        }}, 413
+
     @app.after_request
     def _cors(response):
         if request_path_needs_cors():

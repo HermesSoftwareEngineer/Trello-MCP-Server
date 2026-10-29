@@ -3,6 +3,8 @@
 import base64
 import binascii
 import mimetypes
+import os
+import re
 
 from .common import ToolError, as_bool_param, run_batch
 from .schemas import REF, WRITE
@@ -95,16 +97,31 @@ def _render(att: dict) -> dict:
 
 
 def _decode(operation) -> tuple[str, bytes, str]:
-    filename = (operation.get("filename") or "").strip()
+    # Remove qualquer caminho: so o nome do arquivo vai para o Trello.
+    filename = os.path.basename((operation.get("filename") or "").strip().replace("\\", "/"))
     if not filename:
         raise ToolError("Anexar arquivo exige 'filename' (com extensao).")
     raw = operation["content_base64"]
+    if not isinstance(raw, str):
+        raise ToolError("'content_base64' deve ser uma string em base64.")
     if raw.lstrip().startswith("data:") and "," in raw:
         raw = raw.split(",", 1)[1]  # aceita data URI
+    raw = re.sub(r"\s+", "", raw)  # quebras de linha/espacos comuns em base64
+    # Checa o tamanho ANTES de decodificar: base64 infla ~4/3 e nao queremos
+    # alocar centenas de MB para so depois recusar.
+    if len(raw) > (MAX_UPLOAD_BYTES * 4) // 3 + 8:
+        raise ToolError(
+            f"Arquivo excede o limite de {MAX_UPLOAD_BYTES} bytes (base64 com {len(raw)} caracteres)."
+        )
+    raw = raw + "=" * (-len(raw) % 4)  # tolera padding omitido
     try:
-        content = base64.b64decode(raw)
-    except (binascii.Error, ValueError) as exc:
-        raise ToolError(f"'content_base64' invalido: {exc}") from exc
+        # validate=True: lixo no meio do texto vira erro em vez de arquivo corrompido em silencio.
+        content = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
+        try:
+            content = base64.b64decode(raw.replace("-", "+").replace("_", "/"), validate=True)  # url-safe
+        except (binascii.Error, ValueError) as exc:
+            raise ToolError(f"'content_base64' invalido: {exc}") from exc
     if not content:
         raise ToolError("O arquivo esta vazio.")
     if len(content) > MAX_UPLOAD_BYTES:

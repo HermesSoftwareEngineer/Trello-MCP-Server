@@ -20,6 +20,9 @@ class Config:
     PORT = int(os.getenv("PORT", "8000"))
     DEBUG = os.getenv("FLASK_DEBUG", "0") == "1"
 
+    # Teto do corpo de uma requisicao (um lote com varios anexos em base64).
+    MAX_CONTENT_LENGTH = int(os.getenv("MAX_REQUEST_BYTES", str(64 * 1024 * 1024)))
+
     APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "")
     SECRET_KEY = APP_SECRET_KEY or "dev-insecure-key"
 

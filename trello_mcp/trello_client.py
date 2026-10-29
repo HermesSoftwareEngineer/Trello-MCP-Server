@@ -6,6 +6,7 @@ tools do MCP.
 """
 
 import time
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -16,6 +17,23 @@ from .config import Config
 # nova tentativa em vez de erro. A janela e de 10s -- por isso o teto de espera.
 RATE_LIMIT_RETRIES = 3
 RATE_LIMIT_MAX_WAIT = 11.0
+
+# Timeouts (conexao, leitura) em segundos. Upload de arquivo grande precisa de
+# mais folga na leitura (o Trello processa o arquivo antes de responder).
+TIMEOUT_DEFAULT = (10, 15)
+TIMEOUT_UPLOAD = (10, 90)
+TIMEOUT_DOWNLOAD = (10, 30)
+DOWNLOAD_DEADLINE = 45.0  # teto total de um download, em segundos
+DOWNLOAD_MAX_REDIRECTS = 4
+DOWNLOAD_CHUNK = 64 * 1024
+
+# Hosts que recebem as credenciais do usuario ao baixar um anexo.
+TRELLO_HOST_SUFFIXES = ("trello.com",)
+
+
+def is_trello_host(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == s or host.endswith("." + s) for s in TRELLO_HOST_SUFFIXES)
 
 
 class TrelloAuthError(RuntimeError):
@@ -48,13 +66,7 @@ class TrelloClient:
         merged_params = {"key": self._api_key, "token": self._token, **(params or {})}
 
         for attempt in range(RATE_LIMIT_RETRIES + 1):
-            try:
-                response = requests.request(
-                    method, url, params=merged_params, json=json, files=files,
-                    timeout=60 if files else 15
-                )
-            except requests.RequestException as exc:
-                raise TrelloApiError(f"Falha de rede ao chamar o Trello: {exc}") from exc
+            response = self._send(method, url, merged_params, json, files)
 
             if response.status_code != 429 or attempt == RATE_LIMIT_RETRIES:
                 break
@@ -84,6 +96,39 @@ class TrelloClient:
         except ValueError:
             return response.text
 
+    def _redact(self, text: str) -> str:
+        """Mensagens de erro do requests embutem a URL com key/token na query."""
+        for secret in (self._api_key, self._token):
+            if secret:
+                text = text.replace(secret, "***")
+        return text
+
+    def _send(self, method, url, params, json, files):
+        """Uma chamada HTTP. Leituras (GET) sao idempotentes e ganham uma
+        segunda tentativa em falha transitoria de rede; escritas nao, para
+        nao duplicar efeitos."""
+        tries = 2 if method.upper() == "GET" else 1
+        for n in range(tries):
+            try:
+                return requests.request(
+                    method, url, params=params, json=json, files=files,
+                    timeout=TIMEOUT_UPLOAD if files else TIMEOUT_DEFAULT,
+                )
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                if n + 1 < tries:
+                    time.sleep(0.5)
+                    continue
+                error = exc
+            except requests.RequestException as exc:
+                error = exc
+            hint = ""
+            if files:
+                hint = (" O anexo pode ter sido criado mesmo assim: confira com "
+                        "'list' antes de repetir o envio.")
+            raise TrelloApiError(
+                f"Falha de rede ao chamar o Trello: {self._redact(str(error))}.{hint}"
+            ) from None
+
     @staticmethod
     def _retry_delay(response, attempt: int) -> float:
         """Respeita Retry-After quando presente; senao usa backoff exponencial."""
@@ -102,3 +147,71 @@ class TrelloClient:
             "/members/me",
             params={"fields": "id,username,fullName,email"},
         )
+
+    def download(self, url: str, limit: int) -> tuple[bytes, str, bool]:
+        """Baixa um arquivo anexado (URL do Trello) com as credenciais do usuario.
+
+        As URLs de anexos do Trello exigem o header Authorization (OAuth) e
+        nao aceitam key/token na query. As credenciais so vao para hosts do
+        Trello: se houver redirect para outro host (storage assinado), o
+        header e descartado. Le no maximo `limit` bytes e devolve
+        (conteudo, content_type, truncado) -- truncado=True se havia mais.
+        """
+        if not url.lower().startswith("https://") or not is_trello_host(url):
+            raise TrelloApiError("URL de anexo fora do Trello; nao baixo.")
+        auth = f'OAuth oauth_consumer_key="{self._api_key}", oauth_token="{self._token}"'
+        deadline = time.monotonic() + DOWNLOAD_DEADLINE
+        current = url
+
+        for _ in range(DOWNLOAD_MAX_REDIRECTS + 1):
+            headers = {"Authorization": auth} if is_trello_host(current) else {}
+            try:
+                response = requests.get(
+                    current, headers=headers, stream=True, allow_redirects=False,
+                    timeout=TIMEOUT_DOWNLOAD,
+                )
+            except requests.RequestException as exc:
+                raise TrelloApiError(
+                    f"Falha de rede ao baixar o anexo: {self._redact(str(exc))}"
+                ) from None
+
+            with response:
+                if response.status_code in (301, 302, 303, 307, 308):
+                    current = urljoin(current, response.headers.get("Location", ""))
+                    if not current.lower().startswith("https://"):
+                        raise TrelloApiError("Redirect de anexo para URL nao-HTTPS; recusado.")
+                    continue
+                if response.status_code in (401, 403):
+                    raise TrelloAuthError(
+                        f"Trello recusou o download do anexo ({response.status_code})."
+                    )
+                if response.status_code == 404:
+                    raise TrelloApiError("Anexo nao encontrado no Trello (404).", status_code=404)
+                if not response.ok:
+                    raise TrelloApiError(
+                        f"Download do anexo falhou: Trello retornou {response.status_code}.",
+                        status_code=response.status_code,
+                    )
+
+                chunks, size, truncated = [], 0, False
+                try:
+                    for chunk in response.iter_content(DOWNLOAD_CHUNK):
+                        if not chunk:
+                            continue
+                        room = limit - size
+                        if len(chunk) > room:
+                            chunks.append(chunk[:room])
+                            size += room
+                            truncated = True
+                            break
+                        chunks.append(chunk)
+                        size += len(chunk)
+                        if time.monotonic() > deadline:
+                            raise TrelloApiError("Download do anexo excedeu o tempo limite.")
+                except requests.RequestException as exc:
+                    raise TrelloApiError(
+                        f"Falha de rede ao baixar o anexo: {self._redact(str(exc))}"
+                    ) from None
+                return b"".join(chunks), response.headers.get("Content-Type", ""), truncated
+
+        raise TrelloApiError("Muitos redirects ao baixar o anexo.")
