@@ -368,6 +368,10 @@ def _read_entry(zf: zipfile.ZipFile, name: str, att, limit: int, skip: int = 0):
     try:
         info = zf.getinfo(name)
     except KeyError:
+        # zips feitos no Windows usam "\\"; aceita "/" ou "\\" indistintamente
+        flat = name.replace("\\", "/")
+        info = next((i for i in zf.infolist() if i.filename.replace("\\", "/") == flat), None)
+    if info is None:
         near = [i.filename for i in zf.infolist() if name.lower() in i.filename.lower()][:10]
         raise ToolError(
             f"Entrada {name!r} nao existe no zip."
@@ -528,22 +532,28 @@ _EXTRACTORS = {"docx": _docx_text, "xlsx": _xlsx_text, "pptx": _pptx_text}
 
 # ---- mode=download ----------------------------------------------------------------
 
+def _intval(value, label: str, minimum: int):
+    """Aceita inteiro ou texto numerico (alguns clientes enviam numeros como string)."""
+    if isinstance(value, str) and re.fullmatch(r"\s*-?\d+\s*", value):
+        value = int(value)
+    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+        raise ToolError(f"'{label}' deve ser um inteiro >= {minimum}.")
+    return value
+
+
 def _part_window(args, size) -> tuple[int, int]:
     length = args.get("length")
     length = DEFAULT_PART_BYTES if length in (None, "") else length
-    if not isinstance(length, int) or isinstance(length, bool) or length < 1:
-        raise ToolError("'length' deve ser um inteiro positivo.")
+    length = _intval(length, "length", 1)
     length = min(length, MAX_PART_BYTES)
     offset, part = args.get("offset"), args.get("part")
     if offset not in (None, "") and part not in (None, ""):
         raise ToolError("Informe offset OU part, nao os dois.")
     if part not in (None, ""):
-        if not isinstance(part, int) or isinstance(part, bool) or part < 1:
-            raise ToolError("'part' deve ser um inteiro >= 1.")
+        part = _intval(part, "part", 1)
         offset = (part - 1) * length
     offset = 0 if offset in (None, "") else offset
-    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
-        raise ToolError("'offset' deve ser um inteiro >= 0.")
+    offset = _intval(offset, "offset", 0)
     if isinstance(size, int) and offset >= size > 0:
         raise ToolError(f"offset {offset} esta alem do fim do arquivo ({size} bytes).")
     if offset + length > MAX_SCAN_BYTES:
