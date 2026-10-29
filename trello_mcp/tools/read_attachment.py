@@ -650,6 +650,8 @@ def read_attachment(ctx, args):
         zf = _open_zip(_fetch_whole(ctx, att, "zip"), att)
         raw, total, more = _read_entry(zf, entry, att, MAX_TEXT_BYTES + 4)
         sniff = _kind({"name": entry}, raw[:16])
+        if sniff in ("png", "jpeg") and more and total <= MAX_IMAGE_BYTES:
+            raw, total, more = _read_entry(zf, entry, att, total)  # imagem inteira
         label = f"[entrada {_clean_name(entry)!r} do zip {att.get('name')!r} | {total} bytes]"
         if sniff == "text" and b"\x00" not in raw[:4096]:
             text, cut = _clip(raw.decode("utf-8-sig", errors="replace"))

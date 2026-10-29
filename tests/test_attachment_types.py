@@ -130,6 +130,12 @@ check("zip entry aceita / para nomes gravados com barra invertida",
       "windows ok" in text_of(read(card=card, attachment="win.zip", entry="demo/README.md")))
 j = jbody(read(card=card, attachment="previa", mode="download", part="2", length="100000", offset=None))
 check("numeros como texto sao aceitos", j["offset"] == 100_000 and j["length"] == 100_000)
+png = b"PNG
+
+" + bytes(range(256)) * 600
+attach("img.zip", mkzip({"a/b.png": png}), "application/zip")
+r = read(card=card, attachment="img.zip", entry="a/b.png")
+check("zip entry PNG grande vira bloco image", r.content[1]["type"] == "image" and base64.b64decode(r.content[1]["data"]) == png)
 check("zip entry inexistente -> erro", raises(lambda: read(card=card, attachment="material", entry="nao/existe"), "nao existe"))
 check("entry em nao-zip -> erro", raises(lambda: read(card=card, attachment="notas.md", entry="x")))
 bomb = mkzip({"zeros.bin": b"\x00" * (60 * 1024 * 1024)})
