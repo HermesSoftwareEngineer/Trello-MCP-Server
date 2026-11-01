@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 (2026-11-01)
+
+Retrocompatível: nenhuma ação ou parâmetro existente mudou.
+
+- **Copiar board**: `manage_board_structure` / `create_board` aceita `source_board` (copia listas e labels, via `idBoardSource`) e `keep_cards` (copia também os cards).
+- **Mover lista entre boards**: `update_list` aceita `target_board` (junto com `name`/`position`).
+- Erro "Lista ... nao encontrada" agora indica como criar a lista (`create_list`).
+
 ## 0.3.0 (2026-10-29)
 
 Retrocompatível: texto, PDF e imagem continuam com o mesmo retorno; `card` e `attachment` seguem sendo os únicos parâmetros obrigatórios.

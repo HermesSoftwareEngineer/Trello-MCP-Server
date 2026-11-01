@@ -389,6 +389,10 @@ class FakeTrello:
             item["name"] = params["name"]
         if "closed" in params:
             item["closed"] = params["closed"] == "true"
+        if "idBoard" in params:
+            item["idBoard"] = params["idBoard"]
+        if "pos" in params:
+            item["pos"] = params["pos"]
         return item
 
     def _move_all(self, list_id, params):
@@ -407,6 +411,15 @@ class FakeTrello:
         board = self._add_board(params["name"])
         if params.get("desc"):
             board["desc"] = params["desc"]
+        source = params.get("idBoardSource")
+        if source:
+            for lst in [l for l in self.lists.values() if l["idBoard"] == source]:
+                novo = self._add_list(board, lst["name"])
+                if params.get("keepFromSource") == "cards":
+                    for card in [c for c in self.cards.values() if c["idList"] == lst["id"]]:
+                        self._add_card(novo, card["name"], card.get("desc", ""))
+            for label in [l for l in self.labels.values() if l["idBoard"] == source]:
+                self._add_label(board, label["name"], label["color"])
         return board
 
     def _update_board(self, board_id, params):

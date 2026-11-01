@@ -257,6 +257,45 @@ out = run(fake, "manage_board_structure", {"operations": [
 ]})
 check("move_all_cards conta os cards", out["results"][0]["result"]["cards_moved"] == 2, str(out["results"][0]))
 
+fake = FakeTrello()
+alpha_id = next(b["id"] for b in fake.boards.values() if b["name"] == "Projeto Alpha")
+n_listas = sum(1 for l in fake.lists.values() if l["idBoard"] == alpha_id)
+n_labels = sum(1 for l in fake.labels.values() if l["idBoard"] == alpha_id)
+out = run(fake, "manage_board_structure", {"operations": [
+    {"action": "create_board", "name": "Copia Alpha", "source_board": "Projeto Alpha"},
+    {"action": "create_board", "name": "Copia com cards", "source_board": "Projeto Alpha", "keep_cards": True},
+    {"action": "create_board", "name": "Sem fonte", "keep_cards": True},
+]})
+res = out["results"]
+call = next(c for c in fake.calls if c[0] == "POST" and c[1].startswith("/boards") and c[2].get("name") == "Copia Alpha")
+copia_id = res[0]["result"]["board"]["id"]
+check("copiar board manda idBoardSource sem cards",
+      call[2].get("idBoardSource") == alpha_id and call[2].get("keepFromSource") == "none"
+      and "defaultLists" not in call[2], str(call))
+check("copia traz listas e labels",
+      sum(1 for l in fake.lists.values() if l["idBoard"] == copia_id) == n_listas
+      and sum(1 for l in fake.labels.values() if l["idBoard"] == copia_id) == n_labels
+      and res[0]["result"]["copied_from"]["cards"] is False, str(res[0]))
+call2 = next(c for c in fake.calls if c[0] == "POST" and c[1].startswith("/boards") and c[2].get("name") == "Copia com cards")
+check("keep_cards pede cards", call2[2].get("keepFromSource") == "cards", str(call2))
+check("keep_cards sem source_board falha", res[2]["status"] == "error", str(res[2]))
+
+out = run(fake, "manage_board_structure", {"operations": [
+    {"action": "update_list", "board": "Projeto Alpha", "list": "A Fazer",
+     "target_board": "Copia Alpha", "position": "top"},
+    {"action": "update_list", "board": "Projeto Alpha", "list": "Em Andamento"},
+]})
+moved = out["results"][0]
+check("update_list move lista para outro board",
+      moved["status"] == "ok" and moved["result"]["list"]["board_id"] == copia_id, str(moved))
+check("update_list sem campos falha", out["results"][1]["status"] == "error")
+
+out = run(fake, "manage_cards", {"operations": [
+    {"action": "create", "board": "Copia Alpha", "list": "Lista Inexistente", "name": "x"},
+]})
+check("lista ausente aponta create_list",
+      out["results"][0]["status"] == "error" and "create_list" in str(out["results"][0]), str(out["results"][0]))
+
 # --------------------------------------------------------------------------
 section("manage_members")
 fake = FakeTrello()

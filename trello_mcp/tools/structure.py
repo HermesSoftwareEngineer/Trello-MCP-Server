@@ -19,7 +19,9 @@ MANAGE_STRUCTURE_TOOL = {
         "Cria e altera a estrutura dos boards: o proprio board, suas listas e suas labels "
         "-- varias operacoes numa unica chamada, com resultado por operacao.\n\n"
         "'create_board' aceita 'lists' e 'labels' para montar um board inteiro (com colunas "
-        "e etiquetas) de uma so vez. 'move_all_cards' e 'archive_all_cards' operam sobre a "
+        "e etiquetas) de uma so vez; com 'source_board' COPIA um board existente (listas e "
+        "labels; cards so com 'keep_cards'). 'update_list' com 'target_board' move a lista "
+        "para outro board. 'move_all_cards' e 'archive_all_cards' operam sobre a "
         "lista toda, evitando uma chamada por card.\n\n"
         "Listas nao podem ser apagadas no Trello -- use 'archive_list'. Para apagar boards "
         "ou labels definitivamente use a tool 'delete_items'."
@@ -52,7 +54,15 @@ MANAGE_STRUCTURE_TOOL = {
                         },
                         "position": {"type": ["string", "number"], "description": "'top', 'bottom' ou numero."},
                         "target_list": {**REF, "description": "Lista destino em 'move_all_cards'."},
-                        "target_board": {**REF, "description": "Board destino em 'move_all_cards' entre boards."},
+                        "target_board": {**REF, "description": (
+                            "Board destino em 'move_all_cards' entre boards, ou em 'update_list' "
+                            "para mover a lista para outro board.")},
+                        "source_board": {**REF, "description": (
+                            "Em 'create_board': board a copiar (listas e labels vem junto).")},
+                        "keep_cards": {
+                            "type": "boolean", "default": False,
+                            "description": "Em 'create_board' com 'source_board': copiar tambem os cards.",
+                        },
                         "lists": {
                             "type": "array", "items": {"type": "string"},
                             "description": "Em 'create_board': nomes das listas a criar, em ordem.",
@@ -98,12 +108,23 @@ def _create_board(ctx, operation):
         params["desc"] = operation["desc"]
     if operation.get("organization"):
         params["idOrganization"] = operation["organization"]
+    source = None
+    if operation.get("source_board"):
+        source = ctx.resolve_board(operation["source_board"])
+        params["idBoardSource"] = source["id"]
+        params["keepFromSource"] = "cards" if operation.get("keep_cards") else "none"
+        params.pop("defaultLists", None)
+    elif operation.get("keep_cards"):
+        raise ToolError("'keep_cards' so vale com 'source_board'.")
 
     board = ctx.client.request("POST", "/boards/", params=params)
     ctx.invalidate()
 
     result = {"board": {"id": board["id"], "name": board.get("name"),
                         "url": board.get("shortUrl") or board.get("url")}}
+    if source:
+        result["copied_from"] = {"id": source["id"], "name": source.get("name"),
+                                 "cards": bool(operation.get("keep_cards"))}
 
     created_lists = []
     for name in as_list(operation.get("lists")):
@@ -182,12 +203,16 @@ def _update_list(ctx, operation):
         params["name"] = operation["name"]
     if "position" in operation:
         params["pos"] = operation["position"]
+    if operation.get("target_board"):
+        params["idBoard"] = ctx.resolve_board(operation["target_board"])["id"]
     if not params:
-        raise ToolError("Informe 'name' e/ou 'position' para atualizar a lista.")
+        raise ToolError("Informe 'name', 'position' e/ou 'target_board' para atualizar a lista.")
 
     updated = ctx.client.request("PUT", f"/lists/{target['id']}", params=params)
+    ctx.invalidate(target.get("idBoard") or board_id)
     ctx.invalidate(updated.get("idBoard") or board_id)
-    return {"list": {"id": updated["id"], "name": updated.get("name")}}
+    return {"list": {"id": updated["id"], "name": updated.get("name"),
+                     "board_id": updated.get("idBoard")}}
 
 
 def _set_list_closed(ctx, operation, closed: bool):

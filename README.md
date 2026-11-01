@@ -95,7 +95,7 @@ tanto um connector token manual quanto um access token OAuth.
 | `get_activity` | leitura | Histórico de board/card/membro, com resumo em texto por ação |
 | `manage_cards` | escrita | create, update, move, archive, unarchive, duplicate, get — em lote |
 | `manage_checklists_and_comments` | escrita | Checklists, itens e comentários — em lote |
-| `manage_board_structure` | escrita | Boards, listas e labels; `create_board` monta o board inteiro de uma vez |
+| `manage_board_structure` | escrita | Boards, listas e labels; `create_board` monta o board inteiro de uma vez ou copia um board (`source_board`, `keep_cards`); `update_list` renomeia, reordena e move a lista para outro board (`target_board`) |
 | `manage_attachments` | escrita | Anexa link ou arquivo (base64, até 10 MB), lista anexos e controla a capa — em lote |
 | `read_attachment` | leitura | Lê ou **baixa** um anexo de card de **qualquer tipo** (texto, PDF, imagem, zip, docx/xlsx/pptx, vídeo, áudio...) com as credenciais do servidor |
 | `manage_members` | escrita | Membros de board e atribuição em cards (produto membros × cards) |

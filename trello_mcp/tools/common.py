@@ -253,6 +253,7 @@ class TrelloContext:
             raise ToolError(
                 f"Lista {ref!r} nao encontrada nesse board. Listas: "
                 + _preview([item["name"] for item in lists])
+                + ". Para criar: manage_board_structure, action 'create_list'."
             )
         return match
 
