@@ -31,6 +31,10 @@ class Config:
 
     TRELLO_API_BASE_URL = "https://api.trello.com/1"
 
+    # Power-Up de checklists (projeto trello-power). Vazio = tool desativada.
+    POWERUP_API_URL = os.getenv("POWERUP_API_URL", "").rstrip("/")
+    POWERUP_API_KEY = os.getenv("POWERUP_API_KEY", "")
+
     # OAuth 2.0 -- o proprio servidor e o authorization server. O issuer e a
     # URL publica; os endpoints ficam abaixo dela. Ver trello_mcp/oauth.py.
     OAUTH_ISSUER = PUBLIC_BASE_URL

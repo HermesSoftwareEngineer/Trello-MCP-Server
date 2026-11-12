@@ -32,7 +32,7 @@ def section(title):
 section("Definicoes das tools")
 tools = list_tools()
 print(f"  {len(tools)} tools: {', '.join(t['name'] for t in tools)}")
-check("11 tools registradas", len(tools) == 11, str(len(tools)))
+check("12 tools registradas", len(tools) == 12, str(len(tools)))
 for tool in tools:
     ann = tool.get("annotations", {})
     check(f"{tool['name']}: schema + annotations",

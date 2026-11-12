@@ -6,11 +6,12 @@ O handler recebe (TrelloContext, arguments) e devolve um objeto serializavel.
 
 from . import (
     activity, attachments, boards, cards, checklists, deletion, members,
-    read_attachment, search, structure,
+    powerup, read_attachment, search, structure,
 )
 from .common import ContentResult, ToolError, TrelloContext
 
-_MODULES = (boards, search, cards, checklists, structure, members, activity, deletion, attachments, read_attachment)
+_MODULES = (boards, search, cards, checklists, powerup, structure, members, activity, deletion,
+            attachments, read_attachment)
 
 TOOL_DEFINITIONS: dict[str, dict] = {}
 _HANDLERS: dict[str, callable] = {}

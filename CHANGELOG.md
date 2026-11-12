@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 (2026-11-12)
+
+Retrocompatível: nenhuma tool existente mudou.
+
+- **Nova tool `manage_powerup_checklists`**: checklists do Power-Up "Checklists" (projeto trello-power) — várias por card, itens com data de início, data de fim e responsável, e checklists padrão por board (`list_templates`, `create_template`, `update_template`, `delete_template`, `apply_template`). Ações em lote, como as demais.
+- **Segurança**: a chave do Power-Up vale para todos os quadros, então card e board são sempre resolvidos com o token do usuário, e checklists/itens/padrões só são localizados dentro deles.
+- Configuração nova: `POWERUP_API_URL` e `POWERUP_API_KEY`. Sem elas, a tool responde que não está configurada.
+- Testes: suíte nova `test_powerup.py` (fakes do Trello e do Power-Up).
+
 ## 0.4.0 (2026-11-01)
 
 Retrocompatível: nenhuma ação ou parâmetro existente mudou.
