@@ -59,7 +59,7 @@ class FakePowerUp:
         preds = []
         for link in self.links.get(item["id"], []):
             pred = self.items[link["id"]]
-            preds.append({**link, "texto": pred["texto"], "cardId": pred["cardId"],
+            preds.append({**link, "texto": pred["texto"], "cardId": pred["cardId"], "boardId": self._board_of(pred),
                           "checklistNome": self.checklists[pred["checklistId"]]["nome"],
                           "dataInicio": pred.get("dataInicio"), "dataFim": pred.get("dataFim"),
                           "feito": pred["feito"]})
@@ -74,8 +74,9 @@ class FakePowerUp:
         links = body.get("predecessoras", [])
         for link in links:
             pred = self.items.get(link["id"])
-            if link["id"] == item_id or not pred or self._board_of(pred) != self._board_of(item):
-                self._fail("As predecessoras precisam ser itens deste quadro.")
+            # Como a chave de servico: qualquer board (o MCP ja resolveu o card com o token do usuario).
+            if link["id"] == item_id or not pred:
+                self._fail("Predecessora não encontrada.")
         graph = {k: [l["id"] for l in v] for k, v in self.links.items() if k != item_id}
         stack, seen = [l["id"] for l in links], set()
         while stack:

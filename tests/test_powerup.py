@@ -227,6 +227,40 @@ out = run(trello, {"action": "set_predecessors", **CARD, "item": "Implantar", "p
 good, entry = ok(out)
 check("lista vazia limpa as predecessoras", good and "predecessors" not in entry["result"]["item"], str(entry))
 
+# --------------------------------------------------------------------------
+section("Predecessoras entre boards")
+trello, powerup = setup()
+beta = trello._add_board("Projeto Beta")
+beta_list = trello._add_list(beta, "Backlog")
+trello._add_card(beta_list, "Contratar fornecedor")
+run(trello, {"action": "add_checklist", **CARD, "name": "Execucao",
+             "items": [{"text": "Implantar correcao", "start": "2026-11-18"}]})
+run(trello, {"action": "add_checklist", "board": "Projeto Beta", "card": "Contratar fornecedor", "name": "Compras",
+             "items": [{"text": "Assinar contrato", "end": "2026-11-25"}]})
+
+out = run(trello, {"action": "set_predecessors", **CARD, "item": "Implantar",
+                   "predecessors": [{"item": "Assinar contrato", "card": "Contratar fornecedor",
+                                     "board": "Projeto Beta"}]})
+good, entry = ok(out)
+pred = entry["result"]["item"]["predecessors"][0] if good else {}
+check("liga predecessora de outro board", good and pred.get("text") == "Assinar contrato", str(entry))
+check("mostra o board e o card da predecessora externa",
+      (pred.get("board"), pred.get("card")) == ("Projeto Beta", "Contratar fornecedor"), str(pred))
+check("conflito com a data do outro board",
+      pred.get("conflicts") == ["deveria comecar a partir de 2026-11-26 (esta em 2026-11-18)"], str(pred))
+
+out = run(trello, {"action": "list", **CARD})
+listed = ok(out)[1]["result"]["checklists"][0]["items"][0]
+check("list mostra o board da predecessora externa", listed["predecessors"][0].get("board") == "Projeto Beta",
+      str(listed))
+
+out = run(trello, {"action": "set_predecessors", **CARD, "item": "Implantar",
+                   "predecessors": [{"item": "Assinar contrato", "board": "Projeto Beta"}]})
+check("com 'board' exige o 'card'", out["results"][0]["status"] == "error", str(out["results"][0]))
+out = run(trello, {"action": "set_predecessors", **CARD, "item": "Implantar",
+                   "predecessors": [{"item": "x", "card": "Qualquer", "board": "Board que nao existe"}]})
+check("board sem acesso/inexistente e recusado", out["results"][0]["status"] == "error", str(out["results"][0]))
+
 powerup_client.get_client = original_get_client
 
 print(f"\n{len(PASS)} ok, {len(FAIL)} falhas")

@@ -27,8 +27,9 @@ LINK_TYPES = {"TI": "TI", "II": "II", "TT": "TT", "IT": "IT",
               "FS": "TI", "SS": "II", "FF": "TT", "SF": "IT"}
 PREDECESSOR_OBJECT = (
     "Cada predecessora e uma string (texto ou id do item, no mesmo card) ou "
-    "{item, card, checklist, type, lag}: 'card' (nome/id/link) quando o item for de OUTRO card "
-    "do mesmo board; 'type' = TI (termino->inicio, padrao), II, TT ou IT (ou FS/SS/FF/SF); "
+    "{item, card, board, checklist, type, lag}: 'card' (nome/id/link) quando o item for de OUTRO "
+    "card; 'board' quando esse card for de OUTRO board (qualquer board que o usuario acessa); "
+    "'type' = TI (termino->inicio, padrao), II, TT ou IT (ou FS/SS/FF/SF); "
     "'lag' = defasagem em dias (negativo adianta)."
 )
 
@@ -48,8 +49,8 @@ MANAGE_POWERUP_TOOL = {
         "As acoes delete_* apagam de verdade.\n\n"
         "Predecessoras (como no MS Project): 'set_predecessors' define a lista de predecessoras "
         "de um item (substitui; [] limpa) e 'add_predecessors' acrescenta/atualiza sem apagar as "
-        "outras. A predecessora pode ser qualquer item do mesmo board, de qualquer card ou "
-        "checklist. Ciclos sao recusados. 'list' mostra as predecessoras de cada item e avisa "
+        "outras. A predecessora pode ser qualquer item de qualquer card ou checklist, inclusive "
+        "de OUTRO board que o usuario acessa (informe 'board' e 'card'). Ciclos sao recusados. 'list' mostra as predecessoras de cada item e avisa "
         "quando as datas conflitam com o vinculo."
     ),
     "annotations": {"title": "Checklists do Power-Up", **DESTRUCTIVE},
@@ -247,7 +248,7 @@ def link_conflicts(item: dict, pred: dict, tipo: str, lag: int) -> list:
     return out
 
 
-def _render_item(item, members, card_names=None) -> dict:
+def _render_item(item, members, card_names=None, board_names=None, board_id=None) -> dict:
     member_id = item.get("responsavelId")
     out = {
         "id": item["id"],
@@ -264,6 +265,8 @@ def _render_item(item, members, card_names=None) -> dict:
             entry = {"id": p["id"], "text": p.get("texto"), "type": p["tipo"], "lag": p.get("defasagem", 0)}
             if p.get("cardId") and p["cardId"] != item.get("cardId"):
                 entry["card"] = (card_names or {}).get(p["cardId"]) or p["cardId"]
+            if board_id and p.get("boardId") and p["boardId"] != board_id:
+                entry["board"] = (board_names or {}).get(p["boardId"]) or p["boardId"]
             if p.get("checklistNome"):
                 entry["checklist"] = p["checklistNome"]
             warnings = link_conflicts(item, p, p["tipo"], p.get("defasagem", 0))
@@ -274,14 +277,30 @@ def _render_item(item, members, card_names=None) -> dict:
     return out
 
 
-def _render_checklist(checklist, members, card_names=None) -> dict:
+def _render_checklist(checklist, members, card_names=None, board_names=None, board_id=None) -> dict:
     items = checklist["itens"]
     return {
         "id": checklist["id"],
         "name": checklist["nome"],
         "progress": f"{sum(1 for i in items if i['feito'])}/{len(items)}",
-        "items": [_render_item(i, members, card_names) for i in items],
+        "items": [_render_item(i, members, card_names, board_names, board_id) for i in items],
     }
+
+
+def _board_names(ctx, board_ids) -> dict:
+    names = {}
+    for board_id in board_ids:
+        try:
+            names[board_id] = ctx.resolve_board(board_id).get("name")
+        except Exception:  # sem acesso: fica o id
+            pass
+    return names
+
+
+def _external(preds, card_id, board_id):
+    cards = {p["cardId"] for p in preds if p.get("cardId") and p["cardId"] != card_id}
+    boards = {p["boardId"] for p in preds if p.get("boardId") and p["boardId"] != board_id}
+    return cards, boards
 
 
 def _card_names(ctx, card_ids, board_id) -> dict:
@@ -310,12 +329,13 @@ def _list(ctx, operation):
     card = _card_of(ctx, operation)
     members = _members(ctx, card["idBoard"])
     checklists = _checklists(card["id"])
-    other_cards = {p["cardId"] for c in checklists for i in c["itens"]
-                   for p in i.get("predecessoras") or [] if p.get("cardId") and p["cardId"] != card["id"]}
+    preds = [p for c in checklists for i in c["itens"] for p in i.get("predecessoras") or []]
+    other_cards, other_boards = _external(preds, card["id"], card["idBoard"])
     names = _card_names(ctx, other_cards, card["idBoard"])
+    boards = _board_names(ctx, other_boards)
     return {
         "card": {"id": card["id"], "name": card.get("name")},
-        "checklists": [_render_checklist(c, members, names) for c in checklists],
+        "checklists": [_render_checklist(c, members, names, boards, card["idBoard"]) for c in checklists],
     }
 
 
@@ -499,10 +519,14 @@ def _parse_link(ctx, raw, card, board_id) -> dict:
     if not isinstance(raw, dict) or not (raw.get("item") or raw.get("text")):
         raise ToolError("Predecessora sem 'item'. " + PREDECESSOR_OBJECT)
     pred_card = card
-    if raw.get("card"):
+    if raw.get("board"):
+        # Outro board: resolvido com o token do usuario (so boards a que ele tem acesso).
+        if not raw.get("card"):
+            raise ToolError("Com 'board', informe tambem o 'card' da predecessora.")
+        other = ctx.resolve_board(raw["board"])
+        pred_card = ctx.resolve_card(raw["card"], other["id"])
+    elif raw.get("card"):
         pred_card = ctx.resolve_card(raw["card"], board_id)
-        if pred_card.get("idBoard") != board_id:
-            raise ToolError(f"O card {pred_card.get('name')!r} e de outro board; predecessoras ficam no mesmo board.")
     pred = _resolve_item(pred_card["id"], raw.get("checklist"), raw.get("item") or raw.get("text"))
     tipo = LINK_TYPES.get(str(raw.get("type") or "TI").strip().upper())
     if not tipo:
@@ -530,8 +554,9 @@ def _save_links(ctx, operation, merge: bool):
             current[link["id"]] = link
         links = list(current.values())
     updated = _api().request("PUT", f"/items/{item['id']}/predecessoras", {"predecessoras": links})
-    others = {p["cardId"] for p in updated.get("predecessoras") or [] if p.get("cardId") != card["id"]}
-    return {"item": _render_item(updated, _members(ctx, board_id), _card_names(ctx, others, board_id))}
+    other_cards, other_boards = _external(updated.get("predecessoras") or [], card["id"], board_id)
+    return {"item": _render_item(updated, _members(ctx, board_id), _card_names(ctx, other_cards, board_id),
+                                 _board_names(ctx, other_boards), board_id)}
 
 
 def _set_predecessors(ctx, operation):

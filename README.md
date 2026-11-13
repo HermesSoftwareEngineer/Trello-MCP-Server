@@ -99,7 +99,7 @@ tanto um connector token manual quanto um access token OAuth.
 | `manage_attachments` | escrita | Anexa link ou arquivo (base64, até 10 MB), lista anexos e controla a capa — em lote |
 | `read_attachment` | leitura | Lê ou **baixa** um anexo de card de **qualquer tipo** (texto, PDF, imagem, zip, docx/xlsx/pptx, vídeo, áudio...) com as credenciais do servidor |
 | `manage_members` | escrita | Membros de board e atribuição em cards (produto membros × cards) |
-| `manage_powerup_checklists` | escrita | Checklists do Power-Up (itens com início, fim e responsável), padrões do board e **predecessoras** entre itens de qualquer card do board (TI/II/TT/IT + defasagem, como no MS Project) — em lote |
+| `manage_powerup_checklists` | escrita | Checklists do Power-Up (itens com início, fim e responsável), padrões do board e **predecessoras** entre itens de qualquer card, inclusive de outros boards (TI/II/TT/IT + defasagem, como no MS Project) — em lote |
 | `delete_items` | **destrutiva** | Remoções permanentes, com `dry_run` |
 
 ### `read_attachment`: ler arquivos anexados

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0 (2026-11-13)
+
+Retrocompatível.
+
+- **Predecessoras entre boards**: em `set_predecessors`/`add_predecessors`, a predecessora aceita `board` (junto com `card`) para ligar itens de OUTRO board que o usuário acessa. O board e o card são resolvidos com o token do usuário.
+- `list` e o retorno das ações mostram o `board` da predecessora quando ela é de outro board.
+
 ## 0.6.0 (2026-11-13)
 
 Retrocompatível: nenhuma ação ou parâmetro existente mudou.
