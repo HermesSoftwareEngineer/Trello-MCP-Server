@@ -22,6 +22,16 @@ ITEM_OBJECT = (
     "Cada item pode ser uma string (so o texto) ou {text, start, end, member, checked}."
 )
 
+# Predecessoras (como no MS Project). Aceita os codigos em portugues e em ingles.
+LINK_TYPES = {"TI": "TI", "II": "II", "TT": "TT", "IT": "IT",
+              "FS": "TI", "SS": "II", "FF": "TT", "SF": "IT"}
+PREDECESSOR_OBJECT = (
+    "Cada predecessora e uma string (texto ou id do item, no mesmo card) ou "
+    "{item, card, checklist, type, lag}: 'card' (nome/id/link) quando o item for de OUTRO card "
+    "do mesmo board; 'type' = TI (termino->inicio, padrao), II, TT ou IT (ou FS/SS/FF/SF); "
+    "'lag' = defasagem em dias (negativo adianta)."
+)
+
 MANAGE_POWERUP_TOOL = {
     "name": "manage_powerup_checklists",
     "description": (
@@ -35,7 +45,12 @@ MANAGE_POWERUP_TOOL = {
         "Datas: 'AAAA-MM-DD', 'today', 'tomorrow' ou offsets como '+3d'; '' limpa. "
         "Responsavel: nome, username ou 'me'; '' remove. Padroes do board sao modelos de "
         "checklist (nome + textos dos itens); 'apply_template' cria uma copia no card. "
-        "As acoes delete_* apagam de verdade."
+        "As acoes delete_* apagam de verdade.\n\n"
+        "Predecessoras (como no MS Project): 'set_predecessors' define a lista de predecessoras "
+        "de um item (substitui; [] limpa) e 'add_predecessors' acrescenta/atualiza sem apagar as "
+        "outras. A predecessora pode ser qualquer item do mesmo board, de qualquer card ou "
+        "checklist. Ciclos sao recusados. 'list' mostra as predecessoras de cada item e avisa "
+        "quando as datas conflitam com o vinculo."
     ),
     "annotations": {"title": "Checklists do Power-Up", **DESTRUCTIVE},
     "inputSchema": {
@@ -54,6 +69,7 @@ MANAGE_POWERUP_TOOL = {
                                 "add_items", "update_item", "check_items", "delete_item",
                                 "list_templates", "create_template", "update_template",
                                 "delete_template", "apply_template",
+                                "set_predecessors", "add_predecessors",
                             ],
                             "description": (
                                 "list = le as checklists do card; add_checklist = nova "
@@ -61,7 +77,8 @@ MANAGE_POWERUP_TOOL = {
                                 "add_items / update_item / check_items / delete_item = itens; "
                                 "list_templates / create_template / update_template / "
                                 "delete_template = padroes do board; apply_template = cria no "
-                                "card uma checklist a partir de um padrao."
+                                "card uma checklist a partir de um padrao; set_predecessors / "
+                                "add_predecessors = vinculos de dependencia do 'item'."
                             ),
                         },
                         "board": {**REF, "description": "Board de contexto (resolve o card por nome e os padroes)."},
@@ -85,6 +102,11 @@ MANAGE_POWERUP_TOOL = {
                         "member": {**REF, "description": "Responsavel do item. Aceita 'me'; '' remove."},
                         "checked": {"type": "boolean", "description": "Estado do item."},
                         "template": {**REF, "description": "Padrao do board por id ou nome."},
+                        "predecessors": {
+                            "type": "array",
+                            "items": {"type": ["string", "object"]},
+                            "description": "Em set_predecessors/add_predecessors. " + PREDECESSOR_OBJECT,
+                        },
                     },
                     "required": ["action"],
                     "additionalProperties": False,
@@ -203,9 +225,31 @@ def _item_body(ctx, raw, board_id) -> tuple[dict, bool]:
     return body, bool(raw.get("checked"))
 
 
-def _render_item(item, members) -> dict:
+def _add_days(iso: str, days: int) -> str:
+    return (datetime.strptime(iso, "%Y-%m-%d") + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def link_conflicts(item: dict, pred: dict, tipo: str, lag: int) -> list:
+    """Mesmas regras da tela do Power-Up (public/js/links.js)."""
+    start = lambda x: x.get("dataInicio") or x.get("dataFim")  # noqa: E731
+    end = lambda x: x.get("dataFim") or x.get("dataInicio")  # noqa: E731
+    rules = {"TI": (end, 1, start, "comecar"), "II": (start, 0, start, "comecar"),
+             "TT": (end, 0, end, "terminar"), "IT": (start, 0, end, "terminar")}
+    base_of, extra, field_of, verb = rules[tipo]
+    out = []
+    base, field = base_of(pred), field_of(item)
+    if base and field:
+        limit = _add_days(base, extra + (lag or 0))
+        if field < limit:
+            out.append(f"deveria {verb} a partir de {limit} (esta em {field})")
+    if tipo in ("TI", "TT") and item.get("feito") and not pred.get("feito"):
+        out.append("concluido antes da predecessora")
+    return out
+
+
+def _render_item(item, members, card_names=None) -> dict:
     member_id = item.get("responsavelId")
-    return {
+    out = {
         "id": item["id"],
         "text": item["texto"],
         "checked": item["feito"],
@@ -213,16 +257,42 @@ def _render_item(item, members) -> dict:
         "end": item.get("dataFim"),
         "member": (members.get(member_id) or member_id) if member_id else None,
     }
+    preds = item.get("predecessoras") or []
+    if preds:
+        rendered = []
+        for p in preds:
+            entry = {"id": p["id"], "text": p.get("texto"), "type": p["tipo"], "lag": p.get("defasagem", 0)}
+            if p.get("cardId") and p["cardId"] != item.get("cardId"):
+                entry["card"] = (card_names or {}).get(p["cardId"]) or p["cardId"]
+            if p.get("checklistNome"):
+                entry["checklist"] = p["checklistNome"]
+            warnings = link_conflicts(item, p, p["tipo"], p.get("defasagem", 0))
+            if warnings:
+                entry["conflicts"] = warnings
+            rendered.append(entry)
+        out["predecessors"] = rendered
+    return out
 
 
-def _render_checklist(checklist, members) -> dict:
+def _render_checklist(checklist, members, card_names=None) -> dict:
     items = checklist["itens"]
     return {
         "id": checklist["id"],
         "name": checklist["nome"],
         "progress": f"{sum(1 for i in items if i['feito'])}/{len(items)}",
-        "items": [_render_item(i, members) for i in items],
+        "items": [_render_item(i, members, card_names) for i in items],
     }
+
+
+def _card_names(ctx, card_ids, board_id) -> dict:
+    """Nome dos cards das predecessoras de outros cards (resolvidos com o token do usuario)."""
+    names = {}
+    for card_id in card_ids:
+        try:
+            names[card_id] = ctx.resolve_card(card_id, board_id).get("name")
+        except Exception:  # card arquivado ou sem acesso: fica o id
+            pass
+    return names
 
 
 def _members(ctx, board_id) -> dict:
@@ -239,9 +309,13 @@ def _members(ctx, board_id) -> dict:
 def _list(ctx, operation):
     card = _card_of(ctx, operation)
     members = _members(ctx, card["idBoard"])
+    checklists = _checklists(card["id"])
+    other_cards = {p["cardId"] for c in checklists for i in c["itens"]
+                   for p in i.get("predecessoras") or [] if p.get("cardId") and p["cardId"] != card["id"]}
+    names = _card_names(ctx, other_cards, card["idBoard"])
     return {
         "card": {"id": card["id"], "name": card.get("name")},
-        "checklists": [_render_checklist(c, members) for c in _checklists(card["id"])],
+        "checklists": [_render_checklist(c, members, names) for c in checklists],
     }
 
 
@@ -418,6 +492,56 @@ def _apply_template(ctx, operation):
             "checklist": _render_checklist(checklist, _members(ctx, card["idBoard"]))}
 
 
+def _parse_link(ctx, raw, card, board_id) -> dict:
+    """Resolve uma predecessora para {id, tipo, defasagem}; o card sempre pelo token do usuario."""
+    if isinstance(raw, str):
+        raw = {"item": raw}
+    if not isinstance(raw, dict) or not (raw.get("item") or raw.get("text")):
+        raise ToolError("Predecessora sem 'item'. " + PREDECESSOR_OBJECT)
+    pred_card = card
+    if raw.get("card"):
+        pred_card = ctx.resolve_card(raw["card"], board_id)
+        if pred_card.get("idBoard") != board_id:
+            raise ToolError(f"O card {pred_card.get('name')!r} e de outro board; predecessoras ficam no mesmo board.")
+    pred = _resolve_item(pred_card["id"], raw.get("checklist"), raw.get("item") or raw.get("text"))
+    tipo = LINK_TYPES.get(str(raw.get("type") or "TI").strip().upper())
+    if not tipo:
+        raise ToolError("Tipo de vinculo invalido: use TI, II, TT ou IT (ou FS, SS, FF, SF).")
+    try:
+        lag = int(raw.get("lag") or 0)
+    except (TypeError, ValueError):
+        raise ToolError("'lag' (defasagem) deve ser um numero inteiro de dias.") from None
+    return {"id": pred["id"], "tipo": tipo, "defasagem": lag}
+
+
+def _save_links(ctx, operation, merge: bool):
+    card = _card_of(ctx, operation)
+    if not operation.get("item"):
+        raise ToolError("Informe 'item' (texto ou id) que recebe as predecessoras.")
+    if "predecessors" not in operation:
+        raise ToolError("Informe 'predecessors'. " + PREDECESSOR_OBJECT)
+    board_id = card["idBoard"]
+    item = _resolve_item(card["id"], operation.get("checklist"), operation["item"])
+    links = [_parse_link(ctx, raw, card, board_id) for raw in as_list(operation["predecessors"])]
+    if merge:
+        current = {p["id"]: {"id": p["id"], "tipo": p["tipo"], "defasagem": p.get("defasagem", 0)}
+                   for p in item.get("predecessoras") or []}
+        for link in links:
+            current[link["id"]] = link
+        links = list(current.values())
+    updated = _api().request("PUT", f"/items/{item['id']}/predecessoras", {"predecessoras": links})
+    others = {p["cardId"] for p in updated.get("predecessoras") or [] if p.get("cardId") != card["id"]}
+    return {"item": _render_item(updated, _members(ctx, board_id), _card_names(ctx, others, board_id))}
+
+
+def _set_predecessors(ctx, operation):
+    return _save_links(ctx, operation, merge=False)
+
+
+def _add_predecessors(ctx, operation):
+    return _save_links(ctx, operation, merge=True)
+
+
 ACTIONS = {
     "list": _list,
     "add_checklist": _add_checklist,
@@ -432,6 +556,8 @@ ACTIONS = {
     "update_template": _update_template,
     "delete_template": _delete_template,
     "apply_template": _apply_template,
+    "set_predecessors": _set_predecessors,
+    "add_predecessors": _add_predecessors,
 }
 
 

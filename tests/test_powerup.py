@@ -175,6 +175,58 @@ check("delete_template apaga", ok(out)[0])
 out = run(trello, {"action": "list_templates"})
 check("padroes exigem board ou card", out["results"][0]["status"] == "error")
 
+# --------------------------------------------------------------------------
+section("Predecessoras")
+trello, powerup = setup()
+run(trello, {"action": "add_checklist", **CARD, "name": "Execucao",
+             "items": [{"text": "Implantar correcao", "start": "2026-11-18", "end": "2026-11-20"}]})
+run(trello, {"action": "add_checklist", "board": "Projeto Alpha", "card": "Atualizar README", "name": "Docs",
+             "items": [{"text": "Revisar texto", "end": "2026-11-19"}, {"text": "Publicar", "end": "2026-11-15"}]})
+
+out = run(trello, {"action": "set_predecessors", **CARD, "item": "Implantar",
+                   "predecessors": [{"item": "Revisar texto", "card": "Atualizar README"},
+                                    {"item": "Publicar", "card": "Atualizar README", "type": "SS", "lag": 2}]})
+good, entry = ok(out)
+preds = entry["result"]["item"]["predecessors"] if good else []
+check("set_predecessors liga itens de outro card", good and [p["text"] for p in preds] == ["Revisar texto", "Publicar"],
+      str(entry))
+check("tipo em ingles vira o codigo do Power-Up (SS -> II) e guarda a defasagem",
+      good and (preds[1]["type"], preds[1]["lag"]) == ("II", 2), str(preds))
+check("mostra o nome do card da predecessora", good and preds[0].get("card") == "Atualizar README", str(preds))
+check("avisa conflito de datas (TI: comeca antes de a predecessora terminar)",
+      good and preds[0].get("conflicts") == ["deveria comecar a partir de 2026-11-20 (esta em 2026-11-18)"],
+      str(preds))
+
+out = run(trello, {"action": "list", **CARD})
+listed = ok(out)[1]["result"]["checklists"][0]["items"][0]
+check("list mostra as predecessoras do item", [p["text"] for p in listed.get("predecessors", [])]
+      == ["Revisar texto", "Publicar"], str(listed))
+
+out = run(trello, {"action": "add_predecessors", "board": "Projeto Alpha", "card": "Atualizar README",
+                   "item": "Publicar", "predecessors": ["Revisar texto"]})
+check("add_predecessors no mesmo card (texto simples)", ok(out)[0], str(out["results"][0]))
+out = run(trello, {"action": "add_predecessors", **CARD, "item": "Implantar",
+                   "predecessors": [{"item": "Publicar", "card": "Atualizar README", "type": "FF"}]})
+good, entry = ok(out)
+check("add_predecessors atualiza o vinculo existente sem apagar os outros",
+      good and [(p["text"], p["type"]) for p in entry["result"]["item"]["predecessors"]]
+      == [("Revisar texto", "TI"), ("Publicar", "TT")], str(entry))
+
+out = run(trello, {"action": "set_predecessors", "board": "Projeto Alpha", "card": "Atualizar README",
+                   "item": "Revisar texto", "predecessors": [{"item": "Implantar", "card": "Corrigir login"}]})
+check("ciclo e recusado", out["results"][0]["status"] == "error" and "ciclo" in out["results"][0]["error"],
+      str(out["results"][0]))
+
+out = run(trello, {"action": "set_predecessors", **CARD, "item": "Implantar",
+                   "predecessors": [{"item": "Revisar texto", "card": "Atualizar README", "type": "XX"}]})
+check("tipo invalido e recusado", out["results"][0]["status"] == "error", str(out["results"][0]))
+out = run(trello, {"action": "set_predecessors", **CARD, "item": "Implantar"})
+check("exige 'predecessors'", out["results"][0]["status"] == "error", str(out["results"][0]))
+
+out = run(trello, {"action": "set_predecessors", **CARD, "item": "Implantar", "predecessors": []})
+good, entry = ok(out)
+check("lista vazia limpa as predecessoras", good and "predecessors" not in entry["result"]["item"], str(entry))
+
 powerup_client.get_client = original_get_client
 
 print(f"\n{len(PASS)} ok, {len(FAIL)} falhas")

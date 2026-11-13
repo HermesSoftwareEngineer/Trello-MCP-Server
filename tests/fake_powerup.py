@@ -21,6 +21,7 @@ class FakePowerUp:
         self.checklists = {}  # id -> {id, boardId, cardId, nome}
         self.items = {}       # id -> item
         self.modelos = {}     # id -> {id, boardId, nome, itens}
+        self.links = {}       # item_id -> [{id, tipo, defasagem}]
 
     # Mesma assinatura do PowerUpClient.
     def request(self, method, path, body=None):
@@ -39,6 +40,7 @@ class FakePowerUp:
             (r"/checklists/(\w+)", ("DELETE", self._delete_checklist)),
             (r"/checklists/(\w+)/items", ("POST", self._create_item)),
             (r"/items/(\w+)", ("PATCH", self._update_item)),
+            (r"/items/(\w+)/predecessoras", ("PUT", self._set_links)),
             (r"/items/(\w+)", ("DELETE", self._delete_item)),
             (r"/boards/(\w+)/modelos", ("GET", self._list_modelos)),
             (r"/boards/(\w+)/modelos", ("POST", self._create_modelo)),
@@ -50,9 +52,42 @@ class FakePowerUp:
     def _fail(message):
         raise ToolError(f"Power-Up de checklists recusou: {message}")
 
+    def _board_of(self, item):
+        return self.checklists[item["checklistId"]]["boardId"]
+
+    def _view(self, item):
+        preds = []
+        for link in self.links.get(item["id"], []):
+            pred = self.items[link["id"]]
+            preds.append({**link, "texto": pred["texto"], "cardId": pred["cardId"],
+                          "checklistNome": self.checklists[pred["checklistId"]]["nome"],
+                          "dataInicio": pred.get("dataInicio"), "dataFim": pred.get("dataFim"),
+                          "feito": pred["feito"]})
+        return {**item, "predecessoras": preds}
+
     def _checklist_view(self, checklist):
-        itens = [i for i in self.items.values() if i["checklistId"] == checklist["id"]]
+        itens = [self._view(i) for i in self.items.values() if i["checklistId"] == checklist["id"]]
         return {**checklist, "itens": itens}
+
+    def _set_links(self, item_id, body):
+        item = self.items[item_id]
+        links = body.get("predecessoras", [])
+        for link in links:
+            pred = self.items.get(link["id"])
+            if link["id"] == item_id or not pred or self._board_of(pred) != self._board_of(item):
+                self._fail("As predecessoras precisam ser itens deste quadro.")
+        graph = {k: [l["id"] for l in v] for k, v in self.links.items() if k != item_id}
+        stack, seen = [l["id"] for l in links], set()
+        while stack:
+            node = stack.pop()
+            if node == item_id:
+                self._fail("Essa predecessora cria um ciclo: ela já depende deste item.")
+            if node not in seen:
+                seen.add(node)
+                stack.extend(graph.get(node, []))
+        self.links[item_id] = [{"id": l["id"], "tipo": l.get("tipo", "TI"), "defasagem": l.get("defasagem", 0)}
+                               for l in links]
+        return self._view(item)
 
     def _check_dates(self, item):
         for key in ("dataInicio", "dataFim"):
@@ -105,13 +140,13 @@ class FakePowerUp:
             self.items.pop(item_id)
 
     def _create_item(self, checklist_id, body):
-        return self._new_item(self.checklists[checklist_id], body)
+        return self._view(self._new_item(self.checklists[checklist_id], body))
 
     def _update_item(self, item_id, body):
         updated = {**self.items[item_id], **body}
         self._check_dates(updated)
         self.items[item_id] = updated
-        return updated
+        return self._view(updated)
 
     def _delete_item(self, item_id, _body):
         self.items.pop(item_id)

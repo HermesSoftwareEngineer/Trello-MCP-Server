@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 (2026-11-13)
+
+Retrocompatível: nenhuma ação ou parâmetro existente mudou.
+
+- **Predecessoras** em `manage_powerup_checklists`, como no MS Project: `set_predecessors` define as predecessoras de um item (substitui; `[]` limpa) e `add_predecessors` acrescenta/atualiza sem apagar as outras. A predecessora pode ser qualquer item do mesmo board, de qualquer card ou checklist (`{item, card, checklist, type, lag}`); `type` aceita TI/II/TT/IT ou FS/SS/FF/SF e `lag` é a defasagem em dias. Ciclos e itens de outro board são recusados pelo Power-Up.
+- `list` mostra as predecessoras de cada item, com o nome do card quando é de outro card e avisos (`conflicts`) quando as datas não respeitam o vínculo.
+- Segurança mantida: o card da predecessora é resolvido com o token do usuário e precisa ser do mesmo board.
+- Exige o trello-power com a rota `PUT /api/items/:id/predecessoras`.
+
 ## 0.5.0 (2026-11-12)
 
 Retrocompatível: nenhuma tool existente mudou.
