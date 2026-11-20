@@ -261,6 +261,50 @@ out = run(trello, {"action": "set_predecessors", **CARD, "item": "Implantar",
                    "predecessors": [{"item": "x", "card": "Qualquer", "board": "Board que nao existe"}]})
 check("board sem acesso/inexistente e recusado", out["results"][0]["status"] == "error", str(out["results"][0]))
 
+# --------------------------------------------------------------------------
+section("Recorrencia")
+trello, powerup = setup()
+out = run(trello, {"action": "add_checklist", **CARD, "name": "Rotina",
+                   "items": [{"text": "Backup", "end": "2026-12-01", "repeat": "weekly"},
+                             {"text": "Relatorio", "start": "2026-12-01", "end": "2026-12-03",
+                              "repeat": {"every": 2, "unit": "dias"}}]})
+good, entry = ok(out)
+items = entry["result"]["checklist"]["items"] if good else []
+check("cria itens recorrentes", [i.get("repeat") for i in items] == ["Toda semana", "A cada 2 (diaria)"], str(entry))
+check("repeat vira a recorrencia do Power-Up",
+      powerup.calls[-1][2]["itens"][1]["recorrencia"] == {"frequencia": "diaria", "intervalo": 2},
+      str(powerup.calls[-1]))
+
+out = run(trello, {"action": "check_items", **CARD, "item_names": ["Backup"]})
+good, entry = ok(out)
+changed = entry["result"]["changed"][0] if good else {}
+check("concluir item recorrente reabre na proxima data",
+      changed.get("checked") is False and changed.get("next", {}).get("end") == "2026-12-08"
+      and changed.get("completed_occurrence") == "2026-12-01", str(entry))
+
+out = run(trello, {"action": "update_item", **CARD, "item": "Relatorio", "checked": True})
+good, entry = ok(out)
+item = entry["result"]["item"] if good else {}
+check("update_item mostra a ocorrencia concluida",
+      item.get("completed_occurrence", {}).get("end") == "2026-12-03" and item.get("start") == "2026-12-03",
+      str(entry))
+
+out = run(trello, {"action": "item_history", **CARD, "item": "Backup"})
+good, entry = ok(out)
+check("item_history lista as conclusoes",
+      good and [c["end"] for c in entry["result"]["completions"]] == ["2026-12-01"], str(entry))
+
+out = run(trello, {"action": "update_item", **CARD, "item": "Backup", "repeat": "none"})
+good, entry = ok(out)
+check("repeat 'none' para de repetir", good and "repeat" not in entry["result"]["item"], str(entry))
+check("envia recorrencia nula", powerup.calls[-1][2] == {"recorrencia": None}, str(powerup.calls[-1]))
+
+out = run(trello, {"action": "update_item", **CARD, "item": "Backup", "repeat": "hourly"})
+check("repeat invalido e recusado", out["results"][0]["status"] == "error", str(out["results"][0]))
+out = run(trello, {"action": "add_items", **CARD, "items": [{"text": "Sem data", "repeat": "daily"}]})
+check("recorrencia sem data e recusada pelo Power-Up", out["results"][0]["status"] == "error",
+      str(out["results"][0]))
+
 powerup_client.get_client = original_get_client
 
 print(f"\n{len(PASS)} ok, {len(FAIL)} falhas")

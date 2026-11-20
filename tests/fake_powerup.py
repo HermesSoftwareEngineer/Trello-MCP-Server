@@ -5,6 +5,7 @@ datas, inicio <= fim e erros no formato {"erro": "..."}.
 """
 import itertools
 import re
+from datetime import date, timedelta
 
 from trello_mcp.tools.common import ToolError
 
@@ -22,6 +23,7 @@ class FakePowerUp:
         self.items = {}       # id -> item
         self.modelos = {}     # id -> {id, boardId, nome, itens}
         self.links = {}       # item_id -> [{id, tipo, defasagem}]
+        self.history = {}     # item_id -> [ocorrencias]
 
     # Mesma assinatura do PowerUpClient.
     def request(self, method, path, body=None):
@@ -41,6 +43,7 @@ class FakePowerUp:
             (r"/checklists/(\w+)/items", ("POST", self._create_item)),
             (r"/items/(\w+)", ("PATCH", self._update_item)),
             (r"/items/(\w+)/predecessoras", ("PUT", self._set_links)),
+            (r"/items/(\w+)/ocorrencias", ("GET", self._history)),
             (r"/items/(\w+)", ("DELETE", self._delete_item)),
             (r"/boards/(\w+)/modelos", ("GET", self._list_modelos)),
             (r"/boards/(\w+)/modelos", ("POST", self._create_modelo)),
@@ -98,6 +101,25 @@ class FakePowerUp:
         if item.get("dataInicio") and item.get("dataFim") and item["dataInicio"] > item["dataFim"]:
             self._fail("A data de início não pode ser depois da data de fim.")
 
+    STEP = {"diaria": 1, "dias_uteis": 1, "semanal": 7, "mensal": 30, "anual": 365}
+    NAMES = {"diaria": "Todo dia", "dias_uteis": "Dias úteis", "semanal": "Toda semana",
+             "mensal": "Todo mês", "anual": "Todo ano"}
+
+    def _recorrencia(self, item, value):
+        """Valida como o Power-Up (simplificado: mes = 30 dias, ano = 365)."""
+        if not value:
+            return None
+        if value.get("frequencia") not in self.STEP or not 1 <= value.get("intervalo", 1) <= 99:
+            self._fail("Recorrência inválida.")
+        if not (item.get("dataInicio") or item.get("dataFim")):
+            self._fail("Para repetir, o item precisa de uma data de início ou de fim.")
+        n = value.get("intervalo", 1)
+        name = self.NAMES[value["frequencia"]] if n == 1 else f"A cada {n} ({value['frequencia']})"
+        return {"frequencia": value["frequencia"], "intervalo": n, "descricao": name}
+
+    def _history(self, item_id, _body):
+        return {"ocorrencias": list(reversed(self.history.get(item_id, [])))}
+
     def _new_item(self, checklist, body):
         item = {
             "id": _new_id(), "checklistId": checklist["id"], "cardId": checklist["cardId"],
@@ -106,6 +128,7 @@ class FakePowerUp:
             "feito": False,
         }
         self._check_dates(item)
+        item["recorrencia"] = self._recorrencia(item, body.get("recorrencia"))
         self.items[item["id"]] = item
         return item
 
@@ -144,10 +167,26 @@ class FakePowerUp:
         return self._view(self._new_item(self.checklists[checklist_id], body))
 
     def _update_item(self, item_id, body):
-        updated = {**self.items[item_id], **body}
+        current = self.items[item_id]
+        updated = {**current, **body}
         self._check_dates(updated)
+        rec = body["recorrencia"] if "recorrencia" in body else current.get("recorrencia")
+        updated["recorrencia"] = self._recorrencia(updated, rec)
+        done = None
+        if body.get("feito") and updated["recorrencia"] and not current["feito"]:
+            step = timedelta(days=self.STEP[rec["frequencia"]] * updated["recorrencia"]["intervalo"])
+            done = {"dataInicio": updated.get("dataInicio"), "dataFim": updated.get("dataFim"),
+                    "concluidoEm": "2026-11-20T12:00:00+00:00", "concluidoPor": "api"}
+            self.history.setdefault(item_id, []).append(done)
+            for key in ("dataInicio", "dataFim"):
+                if updated.get(key):
+                    updated[key] = (date.fromisoformat(updated[key]) + step).isoformat()
+            updated["feito"] = False
         self.items[item_id] = updated
-        return self._view(updated)
+        view = self._view(updated)
+        if done:
+            view["ocorrenciaConcluida"] = done
+        return view
 
     def _delete_item(self, item_id, _body):
         self.items.pop(item_id)

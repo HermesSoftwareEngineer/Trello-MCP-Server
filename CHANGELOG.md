@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0 (2026-11-20)
+
+Retrocompatível.
+
+- **Itens recorrentes** em `manage_powerup_checklists`, como as datas que se repetem nos cards do Trello: `repeat` no item (`add_items`, `add_checklist`, `update_item`) aceita `daily`, `weekdays`, `weekly`, `monthly`, `yearly` (ou em português) e `{every, unit}` para "a cada N"; `''`/`none` para de repetir. Exige data de início ou fim.
+- Concluir um item recorrente (`check_items` ou `update_item` com `checked`) registra a conclusão e reabre o item nas datas da próxima ocorrência; a resposta traz `completed_occurrence` e as novas datas.
+- Nova ação `item_history`: conclusões anteriores de um item recorrente (datas, quando e quem concluiu).
+- `list` mostra `repeat` nos itens recorrentes.
+- Exige o trello-power com recorrência (`recorrencia` nos itens e `GET /api/items/:id/ocorrencias`).
+
 ## 0.7.0 (2026-11-13)
 
 Retrocompatível.

@@ -19,7 +19,27 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 CLEAR = {"", "null", "none", "clear", "remove"}
 
 ITEM_OBJECT = (
-    "Cada item pode ser uma string (so o texto) ou {text, start, end, member, checked}."
+    "Cada item pode ser uma string (so o texto) ou {text, start, end, member, checked, repeat}."
+)
+
+# Recorrencia (como as datas que se repetem no Trello). Aceita ingles e portugues.
+REPEAT_UNITS = {
+    "daily": "diaria", "day": "diaria", "days": "diaria", "diaria": "diaria", "diario": "diaria",
+    "dia": "diaria", "dias": "diaria",
+    "weekdays": "dias_uteis", "weekday": "dias_uteis", "business_days": "dias_uteis",
+    "dias_uteis": "dias_uteis", "uteis": "dias_uteis",
+    "weekly": "semanal", "week": "semanal", "weeks": "semanal", "semanal": "semanal",
+    "semana": "semanal", "semanas": "semanal",
+    "monthly": "mensal", "month": "mensal", "months": "mensal", "mensal": "mensal",
+    "mes": "mensal", "meses": "mensal",
+    "yearly": "anual", "year": "anual", "years": "anual", "annual": "anual", "anual": "anual",
+    "ano": "anual", "anos": "anual",
+}
+REPEAT_HELP = (
+    "Repeticao do item: 'daily', 'weekdays' (seg a sex), 'weekly', 'monthly' ou 'yearly' "
+    "(ou {every: N, unit: 'day'|'week'|'month'|'year'} para 'a cada N'); '' ou 'none' para de repetir. "
+    "Exige data de inicio ou fim. Ao marcar um item recorrente como feito, ele volta desmarcado com as "
+    "datas da proxima ocorrencia e a conclusao vai para o historico ('item_history')."
 )
 
 # Predecessoras (como no MS Project). Aceita os codigos em portugues e em ingles.
@@ -51,7 +71,11 @@ MANAGE_POWERUP_TOOL = {
         "de um item (substitui; [] limpa) e 'add_predecessors' acrescenta/atualiza sem apagar as "
         "outras. A predecessora pode ser qualquer item de qualquer card ou checklist, inclusive "
         "de OUTRO board que o usuario acessa (informe 'board' e 'card'). Ciclos sao recusados. 'list' mostra as predecessoras de cada item e avisa "
-        "quando as datas conflitam com o vinculo."
+        "quando as datas conflitam com o vinculo.\n\n"
+        "Recorrencia (como as datas que se repetem nos cards do Trello): 'repeat' no item "
+        "(add_items/add_checklist/update_item) faz o item se repetir todo dia, dias uteis, toda semana, "
+        "todo mes, todo ano ou a cada N. Marcar um item recorrente como feito registra a conclusao e "
+        "reabre o item nas datas da proxima ocorrencia; 'item_history' lista as conclusoes."
     ),
     "annotations": {"title": "Checklists do Power-Up", **DESTRUCTIVE},
     "inputSchema": {
@@ -70,7 +94,7 @@ MANAGE_POWERUP_TOOL = {
                                 "add_items", "update_item", "check_items", "delete_item",
                                 "list_templates", "create_template", "update_template",
                                 "delete_template", "apply_template",
-                                "set_predecessors", "add_predecessors",
+                                "set_predecessors", "add_predecessors", "item_history",
                             ],
                             "description": (
                                 "list = le as checklists do card; add_checklist = nova "
@@ -79,7 +103,8 @@ MANAGE_POWERUP_TOOL = {
                                 "list_templates / create_template / update_template / "
                                 "delete_template = padroes do board; apply_template = cria no "
                                 "card uma checklist a partir de um padrao; set_predecessors / "
-                                "add_predecessors = vinculos de dependencia do 'item'."
+                                "add_predecessors = vinculos de dependencia do 'item'; "
+                                "item_history = conclusoes anteriores de um item recorrente."
                             ),
                         },
                         "board": {**REF, "description": "Board de contexto (resolve o card por nome e os padroes)."},
@@ -102,6 +127,7 @@ MANAGE_POWERUP_TOOL = {
                         "end": {"type": "string", "description": "Data de fim do item. '' limpa."},
                         "member": {**REF, "description": "Responsavel do item. Aceita 'me'; '' remove."},
                         "checked": {"type": "boolean", "description": "Estado do item."},
+                        "repeat": {"type": ["string", "object"], "description": REPEAT_HELP},
                         "template": {**REF, "description": "Padrao do board por id ou nome."},
                         "predecessors": {
                             "type": "array",
@@ -207,6 +233,33 @@ def _resolve_template(board_id: str, ref) -> dict:
     return _match(templates, ref, "nome", "Padrao", "Padroes do board")
 
 
+def _repeat(value):
+    """Converte 'repeat' da tool para a recorrencia do Power-Up (None = nao repete)."""
+    if value is None:
+        return None
+    every = 1
+    if isinstance(value, dict):
+        unit = value.get("unit") or value.get("frequency") or ""
+        every = value.get("every", value.get("interval", 1))
+    else:
+        unit = value
+    unit = str(unit).strip().lower().replace(" ", "_").replace("-", "_")
+    for accented, plain in (("á", "a"), ("ú", "u"), ("ê", "e"), ("é", "e")):
+        unit = unit.replace(accented, plain)
+    if unit in CLEAR or unit in ("never", "nunca", "nao_repete"):
+        return None
+    freq = REPEAT_UNITS.get(unit)
+    if not freq:
+        raise ToolError("'repeat' invalido. " + REPEAT_HELP)
+    try:
+        every = int(every)
+    except (TypeError, ValueError):
+        raise ToolError("'every' deve ser um numero inteiro (1 a 99).") from None
+    if not 1 <= every <= 99:
+        raise ToolError("'every' deve ser um numero inteiro (1 a 99).")
+    return {"frequencia": freq, "intervalo": every}
+
+
 def _item_body(ctx, raw, board_id) -> tuple[dict, bool]:
     if isinstance(raw, str):
         raw = {"text": raw}
@@ -223,6 +276,8 @@ def _item_body(ctx, raw, board_id) -> tuple[dict, bool]:
         body["dataFim"] = _date(end, "end do item")
     if raw.get("member"):
         body["responsavelId"] = _member_id(ctx, raw["member"], board_id)
+    if raw.get("repeat") not in (None, ""):
+        body["recorrencia"] = _repeat(raw["repeat"])
     return body, bool(raw.get("checked"))
 
 
@@ -258,6 +313,12 @@ def _render_item(item, members, card_names=None, board_names=None, board_id=None
         "end": item.get("dataFim"),
         "member": (members.get(member_id) or member_id) if member_id else None,
     }
+    if item.get("recorrencia"):
+        out["repeat"] = item["recorrencia"].get("descricao") or item["recorrencia"]["frequencia"]
+    if item.get("ocorrenciaConcluida"):
+        done = item["ocorrenciaConcluida"]
+        out["completed_occurrence"] = {"start": done.get("dataInicio"), "end": done.get("dataFim"),
+                                       "note": "item recorrente: concluido e reaberto na proxima ocorrencia"}
     preds = item.get("predecessoras") or []
     if preds:
         rendered = []
@@ -416,10 +477,12 @@ def _update_item(ctx, operation):
         body["dataFim"] = _date(operation["end"], "end")
     if "member" in operation:
         body["responsavelId"] = _member_id(ctx, operation["member"], card["idBoard"])
+    if "repeat" in operation:
+        body["recorrencia"] = _repeat(operation["repeat"])
     if operation.get("checked") is not None:
         body["feito"] = bool(operation["checked"])
     if not body:
-        raise ToolError("Nenhum campo para atualizar (text, start, end, member, checked).")
+        raise ToolError("Nenhum campo para atualizar (text, start, end, member, checked, repeat).")
 
     updated = _api().request("PATCH", f"/items/{item['id']}", body)
     return {"item": _render_item(updated, _members(ctx, card["idBoard"]))}
@@ -436,7 +499,12 @@ def _check_items(ctx, operation):
         try:
             item = _resolve_item(card["id"], operation.get("checklist"), ref)
             updated = _api().request("PATCH", f"/items/{item['id']}", {"feito": checked})
-            changed.append({"id": updated["id"], "text": updated["texto"], "checked": updated["feito"]})
+            entry = {"id": updated["id"], "text": updated["texto"], "checked": updated["feito"]}
+            done = updated.get("ocorrenciaConcluida")
+            if done:
+                entry["completed_occurrence"] = done.get("dataFim") or done.get("dataInicio")
+                entry["next"] = {"start": updated.get("dataInicio"), "end": updated.get("dataFim")}
+            changed.append(entry)
         except Exception as exc:
             failed.append({"item": ref, "error": str(exc)})
     return {"changed": changed, "failed": failed}
@@ -559,6 +627,23 @@ def _save_links(ctx, operation, merge: bool):
                                  _board_names(ctx, other_boards), board_id)}
 
 
+def _item_history(ctx, operation):
+    card = _card_of(ctx, operation)
+    if not operation.get("item"):
+        raise ToolError("Informe 'item' (texto ou id).")
+    item = _resolve_item(card["id"], operation.get("checklist"), operation["item"])
+    members = _members(ctx, card["idBoard"])
+    history = _api().request("GET", f"/items/{item['id']}/ocorrencias")["ocorrencias"]
+    return {
+        "item": _render_item(item, members),
+        "completions": [
+            {"start": h.get("dataInicio"), "end": h.get("dataFim"), "completed_at": h["concluidoEm"],
+             "completed_by": members.get(h["concluidoPor"]) or h["concluidoPor"]}
+            for h in history
+        ],
+    }
+
+
 def _set_predecessors(ctx, operation):
     return _save_links(ctx, operation, merge=False)
 
@@ -583,6 +668,7 @@ ACTIONS = {
     "apply_template": _apply_template,
     "set_predecessors": _set_predecessors,
     "add_predecessors": _add_predecessors,
+    "item_history": _item_history,
 }
 
 
